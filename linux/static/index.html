@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supervisor de Bombas - Telemetría</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid #1e293b; }
+        h1 { font-size: 1.5rem; font-weight: 600; }
+        .status-badge { padding: 8px 16px; border-radius: 8px; font-weight: 600; font-size: 0.875rem; text-transform: uppercase; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+        .card { background: #1e293b; border-radius: 12px; padding: 20px; border: 1px solid #334155; }
+        .card h2 { font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 16px; }
+        .bomba { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #334155; }
+        .bomba:last-child { border-bottom: none; }
+        .bomba-info { display: flex; flex-direction: column; gap: 4px; }
+        .bomba-name { font-weight: 600; font-size: 1rem; }
+        .bomba-indicators { display: flex; gap: 8px; font-size: 0.75rem; }
+        .indicator { padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+        .indicator.on { background: #22c55e; color: #052e16; }
+        .indicator.off { background: #334155; color: #94a3b8; }
+        .indicator.fault { background: #ef4444; color: #fef2f2; }
+        .bomba-state { font-size: 1.5rem; font-weight: 700; }
+        .bomba-state.running { color: #22c55e; }
+        .bomba-state.stopped { color: #64748b; }
+        .bomba-state.fault { color: #ef4444; }
+        .level-bar { height: 24px; background: #0f172a; border-radius: 12px; overflow: hidden; margin-top: 12px; }
+        .level-fill { height: 100%; border-radius: 12px; transition: width 0.5s ease, background 0.3s; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 0.75rem; }
+        .level-fill.normal { background: linear-gradient(90deg, #22c55e, #16a34a); }
+        .level-fill.low { background: linear-gradient(90deg, #f59e0b, #d97706); }
+        .level-fill.critical { background: linear-gradient(90deg, #ef4444, #dc2626); }
+        .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+        .metric { text-align: center; padding: 12px; background: #0f172a; border-radius: 8px; }
+        .metric-value { font-size: 1.5rem; font-weight: 700; }
+        .metric-label { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; }
+        .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; font-size: 0.875rem; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-warning { background: #f59e0b; color: #1e293b; }
+        .btn-warning:hover { background: #d97706; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .alerts { max-height: 300px; overflow-y: auto; }
+        .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 0.8rem; display: flex; gap: 10px; animation: slideIn 0.3s; }
+        .alert:last-child { margin-bottom: 0; }
+        .alert.critical { background: #7f1d1d; border-left: 3px solid #ef4444; }
+        .alert.warning { background: #78350f; border-left: 3px solid #f59e0b; }
+        .alert.info { background: #1e3a5f; border-left: 3px solid #3b82f6; }
+        .alert-time { color: #94a3b8; font-family: monospace; flex-shrink: 0; }
+        .alert-source { font-weight: 600; color: #fff; flex-shrink: 0; }
+        .alert-message { flex: 1; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+        .connection-status { display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: #94a3b8; }
+        .connection-dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+        .connection-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+        .connection-dot.disconnected { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+        @media (max-width: 768px) { .metrics { grid-template-columns: 1fr; } .controls { flex-direction: column; } .btn { width: 100%; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ Supervisor de Bombas</h1>
+            <div class="connection-status">
+                <span id="conn-dot" class="connection-dot"></span>
+                <span id="conn-text">Desconectado</span>
+            </div>
+        </header>
+
+        <div class="grid">
+            <!-- Estado Principal -->
+            <div class="card">
+                <h2>Estado del Sistema</h2>
+                <div id="main-state" class="status-badge" style="background: #6366f1;">CARGANDO...</div>
+                <div style="margin-top: 16px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.875rem;">
+                    <div>Modo HW: <strong id="hw-mode">-</strong></div>
+                    <div>Mantenimiento: <strong id="maint-mode">-</strong></div>
+                    <div>Emergencia: <strong id="emergency-state">-</strong></div>
+                </div>
+                <div class="metrics" id="metrics"></div>
+            </div>
+
+            <!-- Nivel de Agua -->
+            <div class="card">
+                <h2>Nivel de Agua</h2>
+                <div class="level-bar">
+                    <div id="level-fill" class="level-fill normal" style="width: 0%">0%</div>
+                </div>
+                <div style="margin-top: 8px; display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8;">
+                    <span>0% (4mA)</span>
+                    <span id="level-mA">0 mA</span>
+                    <span>100% (20mA)</span>
+                </div>
+                <div style="margin-top: 12px; font-size: 0.8rem;">
+                    Sensor: <strong id="sensor-status">-</strong>
+                </div>
+            </div>
+
+            <!-- Bombas -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Bombas (7.5 kW c/u)</h2>
+                <div id="bombas-container"></div>
+            </div>
+
+            <!-- Controles -->
+            <div class="card">
+                <h2>Controles</h2>
+                <div class="controls">
+                    <button class="btn btn-primary" id="btn-mode-red" onclick="sendCmd('set_modo_generador', {generador: false})">Modo RED (3 bombas)</button>
+                    <button class="btn btn-warning" id="btn-mode-gen" onclick="sendCmd('set_modo_generador', {generador: true})">Modo GENERADOR (1 bomba)</button>
+                    <button class="btn btn-primary" id="btn-maint-off" onclick="sendCmd('set_mantenimiento', {activo: false})">Salir Mantenimiento</button>
+                    <button class="btn btn-warning" id="btn-maint-on" onclick="sendCmd('set_mantenimiento', {activo: true})">Entrar Mantenimiento</button>
+                    <button class="btn btn-danger" onclick="sendCmd('trigger_emergencia', {codigo: 65280})">EMERGENCIA</button>
+                    <button class="btn btn-primary" onclick="sendCmd('reset_emergencia', {})">Reset Emergencia</button>
+                    <button class="btn btn-primary" onclick="sendCmd('request_status', {})">Actualizar Estado</button>
+                </div>
+            </div>
+
+            <!-- Alertas -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Alertas Recientes</h2>
+                <div id="alerts-container" class="alerts"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

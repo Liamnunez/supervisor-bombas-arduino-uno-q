@@ -1,0 +1,99 @@
+{
+    "folders": [
+        { "path": "." }
+    ],
+    "settings": {
+        "files.associations": {
+            "*.h": "cpp",
+            "*.hpp": "cpp"
+        },
+        "C_Cpp.default.cppStandard": "c++17",
+        "C_Cpp.default.cStandard": "c11",
+        "C_Cpp.default.intelliSenseMode": "linux-gcc-arm64",
+        "python.defaultInterpreterPath": "${workspaceFolder}/linux/venv/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "arduino.path": "/home/administrador/.platformio/penv/bin/pio",
+        "platformio-ide.useBuiltinPIO": true
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "MCU: Build",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/mcu && pio run",
+                "group": { "kind": "build", "isDefault": true },
+                "problemMatcher": ["$gcc"]
+            },
+            {
+                "label": "MCU: Flash",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/mcu && pio run -t upload",
+                "group": "test"
+            },
+            {
+                "label": "MCU: Monitor",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/mcu && pio device monitor -b 115200",
+                "group": "test",
+                "isBackground": true
+            },
+            {
+                "label": "Linux: Install Deps",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/linux && python3 -m venv venv && ./venv/bin/pip install -r requirements.txt",
+                "group": "build"
+            },
+            {
+                "label": "Linux: Run Dev Server",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/linux && ./venv/bin/python app/main.py",
+                "group": "test",
+                "isBackground": true
+            },
+            {
+                "label": "Tests: Run",
+                "type": "shell",
+                "command": "cd ${workspaceFolder}/tests && python3 -m pytest -v",
+                "group": "test"
+            },
+            {
+                "label": "Full Setup",
+                "type": "shell",
+                "command": "cd ${workspaceFolder} && make setup",
+                "group": "build"
+            }
+        ]
+    },
+    "launch": {
+        "version": "0.2.0",
+        "configurations": [
+            {
+                "name": "MCU: Debug (ST-Link)",
+                "type": "cortex-debug",
+                "request": "launch",
+                "cwd": "${workspaceFolder}/mcu",
+                "executable": "${workspaceFolder}/mcu/.pio/build/uno_q/firmware.elf",
+                "serverType": "stlink",
+                "device": "STM32U585AI",
+                "interface": "swd",
+                "runToEntryPoint": "main",
+                "servertype": "stlink",
+                "showDevDebugOutput": "raw"
+            },
+            {
+                "name": "Linux: FastAPI Debug",
+                "type": "python",
+                "request": "launch",
+                "module": "uvicorn",
+                "args": ["app.main:app", "--host", "0.0.0.0", "--port", "8080", "--reload"],
+                "cwd": "${workspaceFolder}/linux",
+                "console": "integratedTerminal",
+                "env": { "PYTHONPATH": "${workspaceFolder}/linux" }
+            }
+        ]
+    }
+}

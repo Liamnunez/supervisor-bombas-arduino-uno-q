@@ -1,0 +1,95 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "MCU: Build (PlatformIO)",
+            "type": "shell",
+            "command": "pio run",
+            "options": { "cwd": "${workspaceFolder}/mcu" },
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "MCU: Flash (ST-Link)",
+            "type": "shell",
+            "command": "pio run -t upload",
+            "options": { "cwd": "${workspaceFolder}/mcu" },
+            "group": "test"
+        },
+        {
+            "label": "MCU: Monitor Serial",
+            "type": "shell",
+            "command": "pio device monitor -b 115200",
+            "options": { "cwd": "${workspaceFolder}/mcu" },
+            "group": "test",
+            "isBackground": true,
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "MCU: Clean Build",
+            "type": "shell",
+            "command": "pio run -t clean",
+            "options": { "cwd": "${workspaceFolder}/mcu" }
+        },
+        {
+            "label": "Linux: Create Venv & Install",
+            "type": "shell",
+            "command": "python3 -m venv venv && ./venv/bin/pip install --upgrade pip && ./venv/bin/pip install -r requirements.txt",
+            "options": { "cwd": "${workspaceFolder}/linux" },
+            "group": "build"
+        },
+        {
+            "label": "Linux: Run FastAPI Dev",
+            "type": "shell",
+            "command": "./venv/bin/python app/main.py",
+            "options": { "cwd": "${workspaceFolder}/linux" },
+            "group": "test",
+            "isBackground": true,
+            "presentation": { "reveal": "always", "panel": "dedicated" }
+        },
+        {
+            "label": "Linux: Install systemd Service",
+            "type": "shell",
+            "command": "sudo cp systemd/telemetry.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable telemetry && sudo systemctl start telemetry",
+            "options": { "cwd": "${workspaceFolder}/linux" }
+        },
+        {
+            "label": "Tests: Run Python Tests",
+            "type": "shell",
+            "command": "python3 -m pytest -v",
+            "options": { "cwd": "${workspaceFolder}/tests" },
+            "group": "test"
+        },
+        {
+            "label": "Tests: Coverage Report",
+            "type": "shell",
+            "command": "python3 -m pytest --cov=../linux/app --cov-report=html",
+            "options": { "cwd": "${workspaceFolder}/tests" }
+        },
+        {
+            "label": "Lint: C++ (cppcheck)",
+            "type": "shell",
+            "command": "cppcheck --enable=all --std=c++17 --suppress=missingIncludeSystem src/ include/",
+            "options": { "cwd": "${workspaceFolder}/mcu" }
+        },
+        {
+            "label": "Lint: Python (pylint)",
+            "type": "shell",
+            "command": "./venv/bin/pylint app/",
+            "options": { "cwd": "${workspaceFolder}/linux" }
+        },
+        {
+            "label": "Docs: Validate Markdown",
+            "type": "shell",
+            "command": "markdownlint docs/*.md README.md || echo 'markdownlint not installed'",
+            "options": { "cwd": "${workspaceFolder}" }
+        },
+        {
+            "label": "Full Project Setup",
+            "type": "shell",
+            "command": "make setup",
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build"
+        }
+    ]
+}

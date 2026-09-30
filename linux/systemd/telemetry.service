@@ -1,0 +1,26 @@
+[Unit]
+Description=Supervisor de Bombas - Telemetría FastAPI
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/administrador/opencode-test/linux
+Environment=PATH=/home/administrador/opencode-test/linux/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+ExecStart=/home/administrador/opencode-test/linux/venv/bin/python app/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telemetry
+
+# Seguridad
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/home/administrador/opencode-test/linux
+
+[Install]
+WantedBy=multi-user.target
