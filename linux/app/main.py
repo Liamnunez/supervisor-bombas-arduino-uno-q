@@ -1,41 +1,39 @@
 """
-FastAPI + WebSocket - Dashboard telemetría Supervisor de Bombas
+FastAPI + WebSocket - Dashboard telemetria Supervisor de Bombas
 
 ## Endpoints
 
-### Estado y Telemetría
-- **GET /api/status** — Estado actual completo del sistema
-- **GET /api/stats** — Estadísticas de comunicación MCU
-- **GET /api/alerts** — Alertas recientes (límite configurable)
-- **GET /api/history** — Historial de alertas por horas
-- **GET /api/export/csv** — Exportar alertas a CSV
-- **GET /api/bot/stats** — Estado del Telegram Bot
+### Estado y Telemetria
+- **GET /api/status** -- Estado actual completo del sistema
+- **GET /api/stats** -- Estadisticas de comunicacion MCU
+- **GET /api/alerts** -- Alertas recientes (limite configurable)
+- **GET /api/history** -- Historial de alertas por horas
+- **GET /api/export/csv** -- Exportar alertas a CSV
+- **GET /api/bot/stats** -- Estado del Telegram Bot
 
-### Configuración (requiere autenticación)
-- **GET /api/config/thresholds** — Obtener umbrales actuales
-- **POST /api/config/thresholds** — Actualizar umbrales (solo admin)
+### Configuracion (requiere autenticacion)
+- **GET /api/config/thresholds** -- Obtener umbrales actuales
+- **POST /api/config/thresholds** -- Actualizar umbrales (solo admin)
 
-### Comandos (requieren autenticación + rol)
-- **POST /api/command** — Ejecutar comando (ver modelos abajo)
-- **POST /api/auth/login** — Obtener token JWT (8h)
+### Comandos (requieren autenticacion + rol)
+- **POST /api/command** -- Ejecutar comando (ver modelos abajo)
+- **POST /api/auth/login** -- Obtener token JWT (8h)
 
 ### WebSocket
-- **GET /ws** — Stream en tiempo real (status, alerts, heartbeat)
+- **GET /ws** -- Stream en tiempo real (status, alerts, heartbeat)
 
 ## Modelos de Comando
 
-```json
 {
   "command": "set_modo_generador|set_mantenimiento|trigger_emergencia|reset_emergencia|request_status",
   "params": {}
 }
-```
 
-## Autenticación
+## Autenticacion
 - **Operator**: reset_emergencia, set_mantenimiento, request_status
 - **Admin**: todo lo anterior + set_modo_generador, trigger_emergencia
-- **Fail-closed**: sin contraseñas configuradas → ningún comando remoto
-```
+- **Fail-closed**: sin contrasenas configuradas -> ningun comando remoto
+"""
 
 import asyncio
 import csv
@@ -61,11 +59,11 @@ from .telegram_bot import create_bot_from_env, TelegramBot
 
 # Instancias globales
 state_manager = StateManager()
-# Alertas con persistencia local SQLite (no se pierden datos en caídas de red)
+# Alertas con persistencia local SQLite (no se pierden datos en caidas de red)
 alert_manager = AlertManager(
     db_path=os.environ.get("SUPERVISOR_ALERTS_DB", "supervisor_alerts.db")
 )
-# Autenticación de comandos (FAIL-CLOSED si no hay contraseñas configuradas)
+# Autenticacion de comandos (FAIL-CLOSED si no hay contrasenas configuradas)
 auth_manager = AuthManager.from_env()
 # Telegram Bot (opcional, se inicia si hay token/chat_id en entorno)
 telegram_bot: Optional[TelegramBot] = None
@@ -76,7 +74,7 @@ active_websockets: Set[WebSocket] = set()
 async def lifespan(app: FastAPI):
     global telegram_bot
     # Startup
-    print("[API] Iniciando telemetría...")
+    print("[API] Iniciando telemetria...")
     if not auth_manager.configured:
         print("[API] ADVERTENCIA: sin SUPERVISOR_OPERATOR_PASSWORD/"
               "SUPERVISOR_ADMIN_PASSWORD -> comandos REMOTOS BLOQUEADOS (fail-closed)")
@@ -102,24 +100,24 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown
-    print("[API] Cerrando telemetría...")
+    print("[API] Cerrando telemetria...")
     if telegram_bot:
         telegram_bot.stop()
     state_manager.stop()
 
 
 app = FastAPI(
-    title="Supervisor de Bombas - Telemetría",
+    title="Supervisor de Bombas - Telemetria",
     version="1.0.0",
     lifespan=lifespan,
     description=__doc__,
     contact={"name": "Supervisor de Bombas", "url": "https://github.com/Liamnunez/supervisor-bombas-arduino-uno-q"},
     license_info={"name": "Internal Use", "url": "https://github.com/Liamnunez/supervisor-bombas-arduino-uno-q"},
     openapi_tags=[
-        {"name": "telemetria", "description": "Estado, alertas, historial, exportación"},
-        {"name": "configuracion", "description": "Umbrales y configuración (auth requerido)"},
+        {"name": "telemetria", "description": "Estado, alertas, historial, exportacion"},
+        {"name": "configuracion", "description": "Umbrales y configuracion (auth requerido)"},
         {"name": "comandos", "description": "Comandos de control (auth + rol requerido)"},
-        {"name": "auth", "description": "Autenticación y tokens"},
+        {"name": "auth", "description": "Autenticacion y tokens"},
         {"name": "websocket", "description": "Stream en tiempo real"},
         {"name": "bot", "description": "Telegram Bot"},
     ]
@@ -143,7 +141,7 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Servir archivos estáticos
+# Servir archivos estaticos
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -166,17 +164,17 @@ def extract_token(request: Request) -> Optional[str]:
 
 @app.post("/api/auth/login", tags=["auth"])
 async def login(req: LoginRequest):
-    """Intercambia contraseña por token (operator o admin)."""
+    """Intercambia contrasena por token (operator o admin)."""
     result = auth_manager.login(req.password)
     if not result:
-        auth_manager.audit("login", None, False, "credenciales inválidas")
-        raise HTTPException(401, "Credenciales inválidas")
+        auth_manager.audit("login", None, False, "credenciales invalidas")
+        raise HTTPException(401, "Credenciales invalidas")
     auth_manager.audit("login", result["role"], True)
     return result
 
 
 async def heartbeat_task():
-    """Enviar heartbeat periódico a WebSockets y solicitar estado al MCU"""
+    """Enviar heartbeat periodico a WebSockets y solicitar estado al MCU"""
     while True:
         await asyncio.sleep(5)
         
@@ -265,7 +263,7 @@ async def get_alerts(limit: int = 100):
 
 
 # ============================================================
-# Nuevos endpoints: historial, exportación, umbrales, bot
+# Nuevos endpoints: historial, exportacion, umbrales, bot
 # ============================================================
 
 class ThresholdsConfig(BaseModel):
@@ -275,23 +273,23 @@ class ThresholdsConfig(BaseModel):
     feedback_timeout_s: Optional[int] = None
     heartbeat_timeout_s: Optional[int] = None
     dedup_window_s: Optional[int] = None
-    # CurrentProtector thresholds (se envían al MCU si se implementa)
+    # CurrentProtector thresholds (se envian al MCU si se implementa)
     corriente_aviso_a: Optional[float] = None
     corriente_trip_a: Optional[float] = None
     corriente_reset_a: Optional[float] = None
 
 
-@app.get("/api/history")
+@app.get("/api/history", tags=["telemetria"])
 async def get_history(
     hours: int = 24,
     limit: int = 1000,
     request: Request = None
 ):
-    """Historial de alertas para gráficas (últimas N horas)."""
+    """Historial de alertas para graficas (ultimas N horas)."""
     if request:
         role = auth_manager.verify(extract_token(request))
         if role is None:
-            raise HTTPException(401, "Autenticación requerida")
+            raise HTTPException(401, "Autenticacion requerida")
     
     from datetime import timedelta
     since = datetime.now() - timedelta(hours=hours)
@@ -300,13 +298,13 @@ async def get_history(
     return [a.to_dict() for a in filtered]
 
 
-@app.get("/api/export/csv")
+@app.get("/api/export/csv", tags=["telemetria"])
 async def export_csv(hours: int = 24, request: Request = None):
     """Exportar alertas a CSV."""
     if request:
         role = auth_manager.verify(extract_token(request))
         if role is None:
-            raise HTTPException(401, "Autenticación requerida")
+            raise HTTPException(401, "Autenticacion requerida")
     
     from datetime import timedelta
     since = datetime.now() - timedelta(hours=hours)
@@ -333,12 +331,12 @@ async def export_csv(hours: int = 24, request: Request = None):
     )
 
 
-@app.get("/api/config/thresholds")
+@app.get("/api/config/thresholds", tags=["configuracion"])
 async def get_thresholds(request: Request):
     """Obtener umbrales actuales (solo admin/operator)."""
     role = auth_manager.verify(extract_token(request))
     if role is None:
-        raise HTTPException(401, "Autenticación requerida")
+        raise HTTPException(401, "Autenticacion requerida")
     
     return {
         "nivel_critico_bajo": alert_manager.nivel_critico_bajo,
@@ -346,11 +344,11 @@ async def get_thresholds(request: Request):
         "feedback_timeout_s": alert_manager.feedback_timeout_s,
         "heartbeat_timeout_s": alert_manager.heartbeat_timeout_s,
         "dedup_window_s": alert_manager.dedup_window_s,
-        # CurrentProtector thresholds (si se añaden al AlertManager en futuro)
+        # CurrentProtector thresholds (si se anaden al AlertManager en futuro)
     }
 
 
-@app.post("/api/config/thresholds")
+@app.post("/api/config/thresholds", tags=["configuracion"])
 async def set_thresholds(cfg: ThresholdsConfig, request: Request):
     """Actualizar umbrales (solo admin)."""
     role = auth_manager.verify(extract_token(request))
@@ -378,32 +376,32 @@ async def set_thresholds(cfg: ThresholdsConfig, request: Request):
     return {"success": True, "changed": changed, "current": await get_thresholds(request)}
 
 
-@app.get("/api/bot/stats")
+@app.get("/api/bot/stats", tags=["bot"])
 async def get_bot_stats(request: Request):
-    """Estadísticas del Telegram Bot."""
+    """Telegram Bot stats."""
     role = auth_manager.verify(extract_token(request))
     if role is None:
-        raise HTTPException(401, "Autenticación requerida")
+        raise HTTPException(401, "Autenticacion requerida")
     
     if not telegram_bot:
         return {"configured": False}
     return {"configured": True, **telegram_bot.get_stats()}
 
 
-@app.post("/api/command")
+@app.post("/api/command", tags=["comandos"])
 async def send_command(req: CommandRequest, request: Request):
-    # 1. Autenticación (fail-closed: sin token válido, nada se ejecuta)
+    # 1. Autenticacion (fail-closed: sin token valido, nada se ejecuta)
     role = auth_manager.verify(extract_token(request))
     if role is None:
-        auth_manager.audit(req.command, None, False, "sin token válido")
-        raise HTTPException(401, "Autenticación requerida")
+        auth_manager.audit(req.command, None, False, "sin token valido")
+        raise HTTPException(401, "Autenticacion requerida")
 
     # 2. Comando conocido
     if req.command not in COMMAND_REQUIRED_ROLE:
         auth_manager.audit(req.command, role, False, "comando desconocido")
         raise HTTPException(400, f"Comando desconocido: {req.command}")
 
-    # 3. Autorización por rol
+    # 3. Autorizacion por rol
     if not auth_manager.authorize(role, req.command):
         auth_manager.audit(req.command, role, False, "rol insuficiente")
         raise HTTPException(403, f"Rol '{role}' no tiene permiso para {req.command}")
@@ -424,7 +422,7 @@ async def send_command(req: CommandRequest, request: Request):
     elif req.command == "trigger_emergencia":
         codigo = req.params.get("codigo", 0xFF00)
         success = state_manager.trigger_emergencia(codigo)
-        message = f"Emergencia activada (código: {codigo:04X})"
+        message = f"Emergencia activada (codigo: {codigo:04X})"
         
     elif req.command == "reset_emergencia":
         success = state_manager.reset_emergencia()
@@ -434,7 +432,7 @@ async def send_command(req: CommandRequest, request: Request):
         success = state_manager.request_status()
         message = "Estado solicitado"
 
-    # 4. Audit de la ejecución
+    # 4. Audit de la ejecucion
     auth_manager.audit(req.command, role, success, message)
 
     return {"success": success, "message": message}
@@ -467,7 +465,7 @@ async def websocket_endpoint(ws: WebSocket):
                 if msg.get("type") == "ping":
                     await ws.send_text(json.dumps({"type": "pong"}))
                 elif msg.get("type") == "command":
-                    # Permitir comandos vía WS también
+                    # Permitir comandos via WS tambien
                     await handle_ws_command(ws, msg)
             except json.JSONDecodeError:
                 pass
@@ -483,13 +481,13 @@ async def handle_ws_command(ws: WebSocket, msg: dict):
     params = msg.get("params", {})
     token = msg.get("token")
 
-    # Autenticación por WebSocket (mismo esquema que HTTP, fail-closed)
+    # Autenticacion por WebSocket (mismo esquema que HTTP, fail-closed)
     role = auth_manager.verify(token)
     if role is None:
-        auth_manager.audit(str(cmd), None, False, "WS sin token válido")
+        auth_manager.audit(str(cmd), None, False, "WS sin token valido")
         await ws.send_text(json.dumps({
             "type": "error", "command": cmd,
-            "error": "autenticación requerida"
+            "error": "autenticacion requerida"
         }))
         return
     if cmd not in COMMAND_REQUIRED_ROLE:
