@@ -10,6 +10,8 @@ FastAPI + WebSocket - Dashboard telemetria Supervisor de Bombas
 - **GET /api/history** -- Historial de alertas por horas
 - **GET /api/export/csv** -- Exportar alertas a CSV
 - **GET /api/bot/stats** -- Estado del Telegram Bot
+- **GET /api/metrics/history** -- Series temporales (nivel, corriente, bombas, modo, estado)
+- **GET /api/metrics/latest** -- Ultimo punto de telemetria
 
 ### Configuracion (requiere autenticacion)
 - **GET /api/config/thresholds** -- Obtener umbrales actuales
@@ -55,6 +57,118 @@ from .models import SystemStatus, Alert, SystemState, McuCommand
 from .alerts import AlertManager
 from .auth import AuthManager, COMMAND_REQUIRED_ROLE
 from .telegram_bot import create_bot_from_env, TelegramBot
+
+
+# ============================================================
+# Almacen de series temporales (MetricsStore)
+# Ring buffer en memoria + opcional persistencia SQLite
+# ============================================================
+class MetricsStore:
+    """Almacena puntos de telemetria cada N segundos para graficas historicas.
+       Ring buffer en memoria (max_points) + persistencia opcional SQLite."""
+    
+    def __init__(self, max_points: int = 2880, db_path: Optional[str] = None):
+        # 2880 puntos = 24h a 30s = 2880; 7d a 5min = 2016
+        self.max_points = max_points
+        self.db_path = db_path
+        self._buffer: List[dict] = []
+        self._lock = asyncio.Lock()
+        if db_path:
+            self._init_db()
+    
+    def _init_db(self):
+        import sqlite3
+        conn = sqlite3.connect(self.db_path, timeout=10)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS metrics (
+                ts TEXT PRIMARY KEY,
+                nivel_agua_pct INTEGER,
+                corriente_a REAL,
+                bomba1 INTEGER,
+                bomba2 INTEGER,
+                bomba3 INTEGER,
+                modo_generador INTEGER,
+                estado INTEGER
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics(ts)")
+        conn.commit()
+        conn.close()
+    
+    async def add(self, status: SystemStatus):
+        """Agrega punto desde SystemStatus."""
+        point = {
+            "ts": datetime.now().isoformat(),
+            "nivel_agua_pct": status.nivel_agua_pct,
+            "corriente_a": round(getattr(status, 'corriente_a', 0.0), 1),
+            "bomba1": 1 if (status.bombas[0].running if len(status.bombas) > 0 else False) else 0,
+            "bomba2": 1 if (status.bombas[1].running if len(status.bombas) > 1 else False) else 0,
+            "bomba3": 1 if (status.bombas[2].running if len(status.bombas) > 2 else False) else 0,
+            "modo_generador": 1 if status.modo_generador_hw else 0,
+            "estado": status.state.value,
+        }
+        
+        async with self._lock:
+            self._buffer.append(point)
+            if len(self._buffer) > self.max_points:
+                self._buffer = self._buffer[-self.max_points:]
+            
+            # Persistencia asincrona (no bloquea)
+            if self.db_path:
+                asyncio.create_task(self._persist(point))
+    
+    async def _persist(self, point: dict):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.db_path, timeout=5)
+            conn.execute(
+                "INSERT OR REPLACE INTO metrics (ts, nivel_agua_pct, corriente_a, bomba1, bomba2, bomba3, modo_generador, estado) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (point["ts"], point["nivel_agua_pct"], point["corriente_a"],
+                 point["bomba1"], point["bomba2"], point["bomba3"],
+                 point["modo_generador"], point["estado"])
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # No bloquear por error de persistencia
+    
+    async def get_history(self, hours: int = 24, limit: int = 1000) -> List[dict]:
+        """Obtiene ultimas N horas (desde memoria si cabe, sino DB)."""
+        since = datetime.now() - __import__('datetime').timedelta(hours=hours)
+        
+        async with self._lock:
+            # Si todo cabe en memoria, usar buffer
+            if len(self._buffer) <= limit:
+                return [p for p in self._buffer if datetime.fromisoformat(p["ts"]) >= since][-limit:]
+            
+            # Sino, consultar DB si existe
+            if self.db_path:
+                try:
+                    import sqlite3
+                    conn = sqlite3.connect(self.db_path, timeout=5)
+                    conn.row_factory = sqlite3.Row
+                    rows = conn.execute(
+                        "SELECT * FROM metrics WHERE ts >= ? ORDER BY ts DESC LIMIT ?",
+                        (since.isoformat(), limit)
+                    ).fetchall()
+                    conn.close()
+                    return [dict(r) for r in reversed(rows)]
+                except Exception:
+                    pass
+            
+            # Fallback: buffer recortado
+            return self._buffer[-limit:]
+    
+    async def get_latest(self) -> Optional[dict]:
+        async with self._lock:
+            return self._buffer[-1] if self._buffer else None
+
+
+# Instancia global (30 dias a 1 punto/30s = 86400 puntos max, pero limitamos a 7d = 20160)
+metrics_store = MetricsStore(
+    max_points=20160,  # 7 dias a 30s
+    db_path=os.environ.get("SUPERVISOR_METRICS_DB")
+)
 
 
 # Instancias globales
@@ -198,6 +312,8 @@ def on_status_change(status: SystemStatus):
     # Evaluar umbrales y generar alertas
     for alert in alert_manager.check_thresholds(status):
         alert_manager.add(alert)
+    # Registrar metrica para series temporales
+    asyncio.create_task(metrics_store.add(status))
     asyncio.create_task(broadcast_status(status))
 
 
@@ -386,6 +502,42 @@ async def get_bot_stats(request: Request):
     if not telegram_bot:
         return {"configured": False}
     return {"configured": True, **telegram_bot.get_stats()}
+
+
+# ============================================================
+# Series temporales (metrics)
+# ============================================================
+
+@app.get("/api/metrics/history", tags=["telemetria"])
+async def get_metrics_history(
+    hours: int = 24,
+    limit: int = 1000,
+    request: Request = None
+):
+    """Series temporales: nivel, corriente, bombas, modo, estado."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticacion requerida")
+    
+    # Limitar rango
+    hours = max(1, min(hours, 720))  # 1h a 30 dias
+    limit = max(1, min(limit, 50000))
+    
+    data = await metrics_store.get_history(hours=hours, limit=limit)
+    return data
+
+
+@app.get("/api/metrics/latest", tags=["telemetria"])
+async def get_metrics_latest(request: Request = None):
+    """Ultimo punto de telemetria."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticacion requerida")
+    
+    point = await metrics_store.get_latest()
+    return point if point else {}
 
 
 @app.post("/api/command", tags=["comandos"])
