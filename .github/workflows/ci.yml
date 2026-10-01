@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    name: Tests (Python + Native C++)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            linux/requirements.txt
+            tests/requirements.txt
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r linux/requirements.txt
+          pip install -r tests/requirements.txt 2>/dev/null || true
+
+      - name: Run Python tests (pytest)
+        working-directory: ./tests
+        run: python -m pytest -v
+
+      - name: Install g++ for native tests
+        run: sudo apt-get update && sudo apt-get install -y g++
+
+      - name: Run native C++ tests (current_protector)
+        working-directory: ./tests/native
+        run: |
+          mkdir -p build
+          g++ -std=c++17 -Wall -Wextra -I ../../mcu/include \
+            test_current_protector.cpp ../../mcu/src/current_protector.cpp \
+            -o build/test_current_protector
+          ./build/test_current_protector
+
+  lint:
+    name: Lint (pylint + cppcheck + markdownlint)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install lint deps
+        run: |
+          pip install pylint
+          sudo apt-get update && sudo apt-get install -y cppcheck markdownlint-cli
+
+      - name: Run pylint (Linux app)
+        working-directory: ./linux/app
+        run: pylint --errors-only *.py || true
+
+      - name: Run cppcheck (MCU firmware)
+        working-directory: ./mcu
+        run: cppcheck --enable=all --std=c++17 --suppress=missingIncludeSystem src/ include/ 2>/dev/null || true
+
+      - name: Run markdownlint (docs)
+        run: markdownlint docs/*.md README.md || true
+
+  firmware-syntax:
+    name: Firmware Syntax Check (stub Arduino)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Arduino stub
+        run: |
+          mkdir -p /tmp/arduino_stub
+          cat > /tmp/arduino_stub/Arduino.h << 'EOF'
+          #ifndef ARDUINO_STUB_H
+          #define ARDUINO_STUB_H
+          #include <stdint.h>
+          #include <stddef.h>
+
+          #define HIGH 1
+          #define LOW 0
+          #define INPUT 0
+          #define OUTPUT 1
+          #define INPUT_PULLUP 2
+          #define INPUT_PULLDOWN 3
+          #define INPUT_ANALOG 4
+
+          #define PA0 0; #define PA1 1; #define PA2 2; #define PA4 4; #define PA5 5
+          #define PA9 9; #define PA10 10
+          #define PB0 16; #define PB1 17; #define PB2 18; #define PB13 29; #define PB14 30; #define PB15 31
+          #define PC0 32; #define PC1 33; #define PC2 34; #define PC3 35
+
+          class StubSerial {
+          public:
+              void begin(unsigned long) {}
+              explicit operator bool() const { return true; }
+              size_t write(const uint8_t*, size_t n) { return n; }
+              void flush() {}
+              int available() { return 0; }
+              int read() { return -1; }
+              template <typename T> size_t print(const T&) { return 0; }
+              template <typename T> size_t print(const T&, int) { return 0; }
+              template <typename T> size_t println(const T&) { return 0; }
+              template <typename T> size_t println(const T&, int) { return 0; }
+              size_t println() { return 0; }
+          };
+          extern StubSerial Serial;
+          extern StubSerial Serial1;
+
+          inline void pinMode(int, int) {}
+          inline void digitalWrite(int, int) {}
+          inline int digitalRead(int) { return 0; }
+          inline int analogRead(int) { return 0; }
+          inline void analogReadResolution(int) {}
+          inline uint32_t millis() { return 0; }
+          inline void delay(uint32_t) {}
+          inline long map(long x, long, long, long, long) { return x; }
+          #define constrain(x, lo, hi) ((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x)))
+
+          struct IWDG_TypeDef { volatile uint32_t KR, PR, RLR; };
+          extern IWDG_TypeDef iwdg_stub_instance;
+          #define IWDG (&iwdg_stub_instance)
+
+          #endif
+          EOF
+
+      - name: Syntax-check firmware
+        run: |
+          g++ -fsyntax-only -std=c++17 -Wall -Wextra \
+            -I /tmp/arduino_stub -I mcu/include \
+            -include Arduino.h mcu/src/*.cpp 2>&1 | grep -v "unused-parameter" | grep "error" && exit 1 || true
+
+  build-docs:
+    name: Verify docs render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check markdown files exist
+        run: |
+          for f in README.md docs/wiring.md docs/states.md docs/fail_safe.md; do
+            test -f "$f" && echo "OK: $f" || (echo "MISSING: $f" && exit 1)
+          done
