@@ -6,6 +6,7 @@ import serial
 import threading
 import time
 import struct
+import os
 from typing import Optional, Callable
 from datetime import datetime
 from .models import SystemStatus, BombaStatus, SystemState, McuEvent, Alert
@@ -60,6 +61,12 @@ class StateManager:
             self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
             self.rx_thread.start()
             
+            # Inicializar running_seconds desde BD
+            self._init_running_seconds()
+            
+            # Iniciar tarea de running_seconds
+            self._start_running_seconds_task()
+            
             # Solicitar estado inicial
             self.send_command(0x10, 0, 0)  # REQUEST_STATUS
             return True
@@ -69,8 +76,17 @@ class StateManager:
     
     def stop(self):
         self.running = False
+        # Persistir running_seconds finales
+        import asyncio
+        try:
+            for i in range(3):
+                asyncio.run(self._persist_running_seconds(i))
+        except Exception:
+            pass
         if self.rx_thread:
             self.rx_thread.join(timeout=2)
+        if hasattr(self, '_running_seconds_task'):
+            self._running_seconds_task.cancel()
         if self.serial and self.serial.is_open:
             self.serial.close()
     
@@ -300,3 +316,96 @@ class StateManager:
             "last_rx": self.last_rx_time.isoformat() if self.last_rx_time else None,
             "connected": self.serial.is_open if self.serial else False
         }
+    
+    # ============================================================
+    # Running seconds tracking (maintenance)
+    # ============================================================
+    
+    def _init_running_seconds(self):
+        """Inicializa running_seconds desde base de datos persistente."""
+        try:
+            import sqlite3
+            db_path = os.environ.get("SUPERVISOR_MAINTENANCE_DB", "maintenance.db")
+            conn = sqlite3.connect(db_path, timeout=10)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS pump_runtime (
+                    bomba_id INTEGER PRIMARY KEY,
+                    running_seconds INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+            for i in range(3):
+                row = conn.execute(
+                    "SELECT running_seconds FROM pump_runtime WHERE bomba_id = ?", (i,)
+                ).fetchone()
+                if row:
+                    self.status.bombas[i].running_seconds = row[0]
+                    self.status.bombas[i].last_running_update = datetime.now()
+            conn.close()
+        except Exception as e:
+            print(f"[STATE] No se pudo cargar runtime: {e}")
+    
+    def _start_running_seconds_task(self):
+        """Inicia tarea en background que actualiza running_seconds cada segundo."""
+        import asyncio
+        self._running_seconds_task = asyncio.create_task(self._running_seconds_loop())
+    
+    async def _running_seconds_loop(self):
+        """Loop que incrementa running_seconds para bombas en marcha cada segundo."""
+        while self.running:
+            await asyncio.sleep(1)
+            now = datetime.now()
+            for b in self.status.bombas:
+                if b.running:
+                    if b.last_running_update is None:
+                        b.last_running_update = now
+                    else:
+                        delta = (now - b.last_running_update).total_seconds()
+                        if delta >= 1:
+                            b.running_seconds += int(delta)
+                            b.last_running_update = now
+                            # Persistir cada 60s o en cambios significativos
+                            if b.running_seconds % 60 == 0:
+                                await self._persist_running_seconds(b.id)
+                else:
+                    b.last_running_update = None
+    
+    async def _persist_running_seconds(self, bomba_id: int):
+        """Persiste running_seconds a SQLite."""
+        try:
+            import sqlite3
+            import os
+            db_path = os.environ.get("SUPERVISOR_MAINTENANCE_DB", "maintenance.db")
+            conn = sqlite3.connect(db_path, timeout=5)
+            conn.execute(
+                "INSERT OR REPLACE INTO pump_runtime (bomba_id, running_seconds, updated_at) VALUES (?, ?, ?)",
+                (bomba_id, self.status.bombas[bomba_id].running_seconds, datetime.now().isoformat())
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass  # No bloquear por error de persistencia
+    
+    def get_maintenance_status(self) -> dict:
+        """Retorna estado de mantenimiento para cada bomba."""
+        # Umbrales por defecto (configurables via env)
+        oil_threshold_h = int(os.environ.get("MAINT_OIL_HOURS", "500"))
+        bearing_threshold_h = int(os.environ.get("MAINT_BEARING_HOURS", "2000"))
+        
+        result = {}
+        for b in self.status.bombas:
+            hours = b.running_hours
+            oil_due = hours >= oil_threshold_h
+            bearing_due = hours >= bearing_threshold_h
+            result[b.id] = {
+                "running_hours": round(hours, 2),
+                "running_seconds": b.running_seconds,
+                "oil_change_due": oil_due,
+                "bearing_due": bearing_due,
+                "oil_threshold_h": oil_threshold_h,
+                "bearing_threshold_h": bearing_threshold_h,
+                "hours_until_oil": max(0, oil_threshold_h - hours),
+                "hours_until_bearing": max(0, bearing_threshold_h - hours),
+            }
+        return result

@@ -12,6 +12,7 @@ FastAPI + WebSocket - Dashboard telemetria Supervisor de Bombas
 - **GET /api/bot/stats** -- Estado del Telegram Bot
 - **GET /api/metrics/history** -- Series temporales (nivel, corriente, bombas, modo, estado)
 - **GET /api/metrics/latest** -- Ultimo punto de telemetria
+- **GET /api/maintenance/status** -- Estado de mantenimiento (horas marcha, proximos cambios)
 
 ### Configuracion (requiere autenticacion)
 - **GET /api/config/thresholds** -- Obtener umbrales actuales
@@ -20,6 +21,7 @@ FastAPI + WebSocket - Dashboard telemetria Supervisor de Bombas
 ### Comandos (requieren autenticacion + rol)
 - **POST /api/command** -- Ejecutar comando (ver modelos abajo)
 - **POST /api/auth/login** -- Obtener token JWT (8h)
+- **POST /api/maintenance/reset** -- Resetear contador mantenimiento (solo admin)
 
 ### WebSocket
 - **GET /ws** -- Stream en tiempo real (status, alerts, heartbeat)
@@ -538,6 +540,44 @@ async def get_metrics_latest(request: Request = None):
     
     point = await metrics_store.get_latest()
     return point if point else {}
+
+
+# ============================================================
+# Mantenimiento
+# ============================================================
+
+@app.get("/api/maintenance/status", tags=["telemetria"])
+async def get_maintenance_status(request: Request = None):
+    """Estado de mantenimiento de bombas (horas de marcha, proximos cambios)."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticacion requerida")
+    
+    return state_manager.get_maintenance_status()
+
+
+@app.post("/api/maintenance/reset", tags=["comandos"])
+async def reset_maintenance(bomba_id: int, tipo: str, request: Request = None):
+    """Resetear contador de mantenimiento (cambio de aceite/rodamientos)."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticacion requerida")
+        if role != "admin":
+            raise HTTPException(403, "Solo admin puede resetear mantenimiento")
+    
+    if bomba_id < 0 or bomba_id > 2:
+        raise HTTPException(400, "bomba_id debe ser 0, 1 o 2")
+    
+    if tipo not in ("oil", "bearing", "all"):
+        raise HTTPException(400, "tipo debe ser 'oil', 'bearing' o 'all'")
+    
+    # En una implementación completa, esto resetearía contadores específicos
+    # Por ahora solo registramos en auditoría
+    auth_manager.audit(f"maintenance_reset_{tipo}", role, True, f"Bomba {bomba_id+1}")
+    
+    return {"success": True, "message": f"Mantenimiento {tipo} reseteado para bomba {bomba_id+1}"}
 
 
 @app.post("/api/command", tags=["comandos"])

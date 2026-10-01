@@ -55,6 +55,8 @@ class BombaStatus:
     relay_closed: bool = False
     fault_count: int = 0
     last_change: Optional[datetime] = None
+    running_seconds: int = 0       # Acumulado de segundos en marcha
+    last_running_update: Optional[datetime] = None  # Ultima vez que se actualizo running_seconds
     
     @property
     def running(self) -> bool:
@@ -63,6 +65,10 @@ class BombaStatus:
     @property
     def mismatch(self) -> bool:
         return self.plc_order != self.feedback
+    
+    @property
+    def running_hours(self) -> float:
+        return self.running_seconds / 3600.0
 
 
 @dataclass
@@ -104,7 +110,9 @@ class SystemStatus:
                     "fault_count": b.fault_count,
                     "running": b.running,
                     "mismatch": b.mismatch,
-                    "last_change": b.last_change.isoformat() if b.last_change else None
+                    "last_change": b.last_change.isoformat() if b.last_change else None,
+                    "running_seconds": b.running_seconds,
+                    "running_hours": round(b.running_hours, 2)
                 }
                 for b in self.bombas
             ]
