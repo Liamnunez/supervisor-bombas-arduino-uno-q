@@ -41,6 +41,7 @@ class McuEvent(IntEnum):
     BOMBA_FAULT = 0x22
     FEEDBACK_MISMATCH = 0x23
     NIVEL_UPDATE = 0x30
+    CORRIENTE_UPDATE = 0x31
     MODO_CHANGE = 0x40
     HEARTBEAT = 0x50
     ERROR = 0xFF
@@ -73,6 +74,7 @@ class SystemStatus:
     emergencia_activa: bool = False
     emergencia_codigo: int = 0
     nivel_agua_pct: int = 0
+    corriente_a: float = 0.0        # Corriente total del generador (CT propio)
     sensor_ok: bool = True
     uptime_ms: int = 0
     last_heartbeat: Optional[datetime] = None
@@ -89,6 +91,7 @@ class SystemStatus:
             "emergencia_activa": self.emergencia_activa,
             "emergencia_codigo": self.emergencia_codigo,
             "nivel_agua_pct": self.nivel_agua_pct,
+            "corriente_a": round(self.corriente_a, 1),
             "sensor_ok": self.sensor_ok,
             "uptime_ms": self.uptime_ms,
             "last_heartbeat": self.last_heartbeat.isoformat() if self.last_heartbeat else None,
@@ -116,9 +119,11 @@ class Alert:
     message: str
     bomba_id: Optional[int] = None
     codigo: Optional[int] = None
+    alert_id: Optional[int] = None   # id en el almacén persistente (SQLite)
     
     def to_dict(self) -> dict:
         return {
+            "id": self.alert_id,
             "timestamp": self.timestamp.isoformat(),
             "level": self.level,
             "source": self.source,

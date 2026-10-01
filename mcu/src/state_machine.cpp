@@ -36,6 +36,8 @@ void StateMachine::begin() {
     last_mode_check = boot_time;
     
     // Lectura inicial del modo hardware
+    // PIN_MODO_GEN: HIGH = RED, LOW = GENERADOR (pull-up interno)
+    modo_generador_hw = !digitalRead(PIN_MODO_GEN);
     readModoHardware();
     modo_estable = true;
     
@@ -54,8 +56,6 @@ void StateMachine::begin() {
 }
 
 void StateMachine::update() {
-    uint32_t now = millis();
-    
     // 1. Leer modo hardware con anti-rebote
     readModoHardware();
     
@@ -120,17 +120,13 @@ void StateMachine::onFeedback(uint8_t bomba_id, bool activo) {
     bombas[bomba_id].last_change = millis();
     
     // Detectar mismatch: PLC ordena pero no hay feedback (o viceversa)
+    // El FAULT como tal lo decide checkFeedbackTimeout (con debounce y
+    // latch, y sobre el estado real del relé) - aquí solo notificamos
+    // el evento de telemetría. Dar fault aquí producía falsos positivos
+    // al arrancar el MCU con una bomba ya en marcha.
     if (activo != bombas[bomba_id].plc_order) {
         if (bomba_event_cb) {
             bomba_event_cb(bomba_id, McuEvent::FEEDBACK_MISMATCH);
-        }
-        
-        // Si contactor está activo sin orden PLC -> fault
-        if (activo && !bombas[bomba_id].plc_order) {
-            bombas[bomba_id].fault_count++;
-            if (bomba_event_cb) {
-                bomba_event_cb(bomba_id, McuEvent::BOMBA_FAULT);
-            }
         }
     }
     
@@ -163,6 +159,25 @@ void StateMachine::triggerEmergencia(uint16_t codigo_error) {
     emergencia_codigo = codigo_error;
     // Forzar transición inmediata
     transitionTo(SystemState::EMERGENCIA);
+}
+
+void StateMachine::resetEmergencia() {
+    if (!emergencia_activa) {
+        // Sin emergencia: el reset solo limpia latch de fallos
+        clearFaults();
+        return;
+    }
+    emergencia_activa = false;
+    emergencia_codigo = 0;
+    // Salir de EMERGENCIA (transitionTo limpia fault_count de las bombas)
+    transitionTo(computeDesiredState());
+}
+
+void StateMachine::clearFaults() {
+    for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
+        bombas[i].fault_count = 0;
+        bombas[i].fault_latched = false;
+    }
 }
 
 void StateMachine::setMantenimiento(bool activo) {
@@ -235,6 +250,7 @@ void StateMachine::handleMantenimiento() {
 }
 
 void StateMachine::updateBombas() {
+    uint32_t now = millis();
     for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
         bool debe_cerrar = false;
         
@@ -246,7 +262,12 @@ void StateMachine::updateBombas() {
             debe_cerrar = false;
         }
         
-        bombas[i].relay_closed = debe_cerrar;
+        // Registrar el instante de cada cambio de salida (base de tiempos
+        // para checkFeedbackTimeout)
+        if (debe_cerrar != bombas[i].relay_closed) {
+            bombas[i].relay_closed = debe_cerrar;
+            bombas[i].relay_change = now;
+        }
     }
 }
 
@@ -254,26 +275,31 @@ void StateMachine::checkFeedbackTimeout() {
     uint32_t now = millis();
     
     for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
-        // Si PLC ordenó arranque pero no hay feedback en timeout -> fault
-        if (bombas[i].plc_order && !bombas[i].feedback) {
-            if (now - bombas[i].last_change >= FEEDBACK_TIMEOUT_MS) {
-                bombas[i].fault_count++;
-                if (bomba_event_cb) {
-                    bomba_event_cb(i, McuEvent::BOMBA_FAULT);
-                }
-                // Forzar relé abierto por seguridad
-                bombas[i].relay_closed = false;
-            }
+        BombaStatus& b = bombas[i];
+        
+        // Solo evaluamos cuando el relé lo manda NOSOTROS:
+        //  - orden sin retorno: energizamos y el contactor no confirma
+        //  - retorno sin orden: relé abierto pero el contactor sigue cerrado
+        //    (pegado/soldado)
+        // IMPORTANTE: si el modo bloquea la bomba (relé abierto por decisión
+        // nuestra) NO hay fallo - es comportamiento esperado en GENERADOR.
+        bool orden_sin_retorno = b.relay_closed && !b.feedback;
+        bool retorno_sin_orden = !b.relay_closed && b.feedback;
+        
+        if (!orden_sin_retorno && !retorno_sin_orden) {
+            // Condición limpia: libera el latch para el próximo episodio
+            b.fault_latched = false;
+            continue;
         }
         
-        // Si hay feedback pero PLC no ordena -> fault (contactor pegado)
-        if (!bombas[i].plc_order && bombas[i].feedback) {
-            if (now - bombas[i].last_change >= FEEDBACK_TIMEOUT_MS) {
-                bombas[i].fault_count++;
-                if (bomba_event_cb) {
-                    bomba_event_cb(i, McuEvent::BOMBA_FAULT);
-                }
+        // Un SOLO fault por episodio (no incrementar en cada loop 100Hz)
+        if (!b.fault_latched && (now - b.relay_change >= FEEDBACK_TIMEOUT_MS)) {
+            b.fault_latched = true;
+            b.fault_count++;
+            if (bomba_event_cb) {
+                bomba_event_cb(i, McuEvent::BOMBA_FAULT);
             }
+            // La bomba queda bloqueada (fault_count > 0) hasta reset de operador
         }
     }
 }
@@ -285,20 +311,21 @@ void StateMachine::sendHeartbeat() {
 void StateMachine::readModoHardware() {
     // Leer pin modo con pull-up: HIGH=RED, LOW=GENERADOR
     bool lectura = digitalRead(PIN_MODO_GEN);
+    bool es_generador = !lectura;  // LOW = GENERADOR (igual que ModeDetect)
     
     // Anti-rebote simple
-    if (lectura == modo_generador_hw) {
+    if (es_generador == modo_generador_hw) {
         modo_debounce_cnt = 0;
     } else {
         modo_debounce_cnt++;
         if (modo_debounce_cnt >= 5) {  // 5 lecturas consistentes = 50ms @ 100Hz
-            modo_generador_hw = lectura;
+            modo_generador_hw = es_generador;
             modo_estable = true;
             modo_debounce_cnt = 0;
             
             // Notificar cambio de modo
             if (bomba_event_cb) {
-                bomba_event_cb(0xFF, modo_generador_hw ? McuEvent::MODO_CHANGE : McuEvent::MODO_CHANGE);
+                bomba_event_cb(0xFF, McuEvent::MODO_CHANGE);
             }
         }
     }

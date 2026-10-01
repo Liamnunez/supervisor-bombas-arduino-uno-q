@@ -29,6 +29,11 @@
 // Nivel de agua (4-20mA -> ADC)
 #define PIN_NIVEL_ADC       PA4   // ADC1_IN9 - Sensor 4-20mA (con divisor)
 
+// Corriente generador (propio - NO toca el CT del DSE 7320)
+// Pinza/CT en serie con la salida del generador, front-end analógico
+// con rectificación + filtro -> voltaje DC proporcional a RMS
+#define PIN_CORRIENTE_ADC   PA5   // ADC - Voltaje DC proporcional a corriente RMS
+
 // Comunicación MCU <-> Linux (QRB2210)
 #define PIN_UART_TX         PA9   // UART1_TX -> Linux RX
 #define PIN_UART_RX         PA10  // UART1_RX -> Linux TX
@@ -60,6 +65,40 @@
 // Número de bombas
 #define NUM_BOMBAS          3
 
+// ============================================================
+// PRESUPUESTO ELÉCTRICO Y PROTECCIÓN DE CORRIENTE
+// ============================================================
+// Bomba: ~30A c/u. Generador emergencia: ~45A.
+// => En GENERADOR solo cabe UNA bomba (30A); 2 bombas = 60A = apagón
+//    del DSE 7320 (su protección de sobrecarga corta todo).
+// El Arduino vigila la corriente con su PROPIO CT (no se modifica el
+// del DSE) y actúa ANTES de que el DSE llegue a su punto de corte.
+
+// Calibración CT (front-end analógico propio - calibrar con pinza amperométrica)
+#define CT_FULL_SCALE_A     100.0f   // Corriente que corresponde a CT_V_MAX
+#define CT_V_MAX            3.3f     // Voltaje de full-scale del ADC
+
+// Umbrales (A)
+#define GEN_CAPACIDAD_A     45.0f    // Capacidad generador
+#define CORRIENTE_AVISO_A   40.0f    // Aviso: cerca del límite
+#define CORRIENTE_TRIP_A    42.0f    // Trip: actuar ANTES del corte del DSE
+#define CORRIENTE_RESET_A   37.0f    // Histeresis: condiciones normales de nuevo
+#define CONTACTOR_PEGADO_A  2.0f     // Corriente con relés abiertos = contactor pegado
+#define CT_FAULT_MAX_A      120.0f   // Fuera de rango del CT -> sensor inválido
+
+// Tiempos (ms)
+#define CORRIENTE_TRIP_DELAY_MS    3000  // > arranque de motor (~2s inrush) - time-overcurrent
+#define CORRIENTE_AVISO_DELAY_MS   1000
+#define CORRIENTE_RESET_DELAY_MS   2000  // Condición limpia antes de re-armar
+#define CONTACTOR_PEGADO_DELAY_MS  1000
+#define CT_FAULT_DELAY_MS          500
+
+// Códigos de error 0x60xx (corriente / protección)
+#define ERR_SOBRECARGA       0x6001  // Trip sobrecarga generador
+#define ERR_CONTACTOR_PEGADO 0x6002  // Corriente con relés abiertos
+#define ERR_SENSOR_CORRIENTE 0x6003  // CT fuera de rango / desconectado
+#define ERR_AVISO_SOBRECARGA 0x6010  // Aviso proximidad al límite
+
 // --- Estados del Sistema ---
 enum class SystemState : uint8_t {
     NORMAL = 0,       // Modo RED - 3 bombas permitidas
@@ -76,6 +115,7 @@ enum class McuEvent : uint8_t {
     BOMBA_FAULT = 0x22,
     FEEDBACK_MISMATCH = 0x23,
     NIVEL_UPDATE = 0x30,
+    CORRIENTE_UPDATE = 0x31,
     MODO_CHANGE = 0x40,
     HEARTBEAT = 0x50,
     ERROR = 0xFF

@@ -27,8 +27,9 @@ private:
     bool last_raw[NUM_BOMBAS];
     uint32_t last_change[NUM_BOMBAS];
     
-    // Anti-rebote
-    static constexpr uint8_t DEBOUNCE_MS = 20;
+    // Anti-rebote: usar DEBOUNCE_MS de config.h (parámetro central).
+    // Nota: no declarar aquí una constante con el mismo nombre -
+    // colisiona con el macro de config.h y rompe la compilación.
     uint8_t debounce_cnt[NUM_BOMBAS];
     
     FeedbackCallback change_cb = nullptr;

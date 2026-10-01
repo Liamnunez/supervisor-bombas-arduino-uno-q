@@ -14,6 +14,8 @@
 #include "mode_detect.h"
 #include "feedback.h"
 #include "comm_bridge.h"
+#include "sensor_current.h"
+#include "current_protector.h"
 
 // Instancias globales
 StateMachine stateMachine;
@@ -22,6 +24,25 @@ SensorLevel sensorLevel;
 ModeDetect modeDetect;
 Feedback feedback;
 CommBridge commBridge;
+SensorCurrent sensorCurrent;
+
+// Protector de corriente del generador (configurado desde config.h)
+static CurrentProtector makeProtector() {
+    ProtectorConfig cfg;
+    cfg.warn_amps = CORRIENTE_AVISO_A;
+    cfg.trip_amps = CORRIENTE_TRIP_A;
+    cfg.reset_amps = CORRIENTE_RESET_A;
+    cfg.welded_amps = CONTACTOR_PEGADO_A;
+    cfg.ct_max_amps = CT_FAULT_MAX_A;
+    cfg.trip_delay_ms = CORRIENTE_TRIP_DELAY_MS;
+    cfg.warn_delay_ms = CORRIENTE_AVISO_DELAY_MS;
+    cfg.reset_delay_ms = CORRIENTE_RESET_DELAY_MS;
+    cfg.welded_delay_ms = CONTACTOR_PEGADO_DELAY_MS;
+    cfg.ct_fault_delay_ms = CT_FAULT_DELAY_MS;
+    cfg.num_relays = NUM_BOMBAS;
+    return CurrentProtector(cfg);
+}
+CurrentProtector currentProtector = makeProtector();
 
 // Timing
 uint32_t last_loop_time = 0;
@@ -54,6 +75,29 @@ void onStateChange(SystemState nuevo, SystemState anterior) {
 
 void onBombaEvent(uint8_t bomba_id, McuEvent evento) {
     commBridge.sendBombaEvent(bomba_id, evento);
+}
+
+// Retorno aux de contactor -> máquina de estados
+void onFeedbackChange(uint8_t bomba_id, bool activo) {
+    stateMachine.onFeedback(bomba_id, activo);
+}
+
+// Órdenes de arranque del PLC (contacto seco por bomba, anti-rebote 50ms)
+void readPlcOrders() {
+    static const uint8_t pins[NUM_BOMBAS] = {PIN_PLC_BOMBA1, PIN_PLC_BOMBA2, PIN_PLC_BOMBA3};
+    static uint8_t cnt[NUM_BOMBAS] = {0, 0, 0};
+    static bool estable[NUM_BOMBAS] = {false, false, false};
+
+    for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
+        bool raw = (digitalRead(pins[i]) == HIGH);  // HIGH = PLC ordena arranque
+        if (raw == estable[i]) {
+            cnt[i] = 0;
+        } else if (++cnt[i] >= (DEBOUNCE_MS / LOOP_INTERVAL_MS)) {
+            estable[i] = raw;
+            stateMachine.onPlcOrder(i, raw);
+            cnt[i] = 0;
+        }
+    }
 }
 
 void setup() {
@@ -89,13 +133,21 @@ void setup() {
     modeDetect.begin();
     feedback.begin();
     commBridge.begin();
+    sensorCurrent.begin();
 
     // Configurar callbacks
     stateMachine.onStateChange(onStateChange);
     stateMachine.onBombaEvent(onBombaEvent);
+    feedback.onChange(onFeedbackChange);
 
     // Inicializar máquina de estados
     stateMachine.begin();
+
+    // Sembrar retornos aux iniciales (evita falso fault si hay una bomba
+    // en marcha desde antes de arrancar el MCU)
+    for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
+        stateMachine.onFeedback(i, feedback.getFeedback(i));
+    }
 
     Serial.println("[MAIN] Inicialización completa. Entrando en loop principal.");
     last_loop_time = millis();
@@ -115,6 +167,7 @@ void loop() {
         modeDetect.update();
         feedback.update();
         sensorLevel.update();
+        readPlcOrders();  // Órdenes de arranque del PLC -> StateMachine
 
         // Actualizar máquina de estados (lee PLC, modo, feedback, decide relés)
         stateMachine.update();
@@ -122,14 +175,52 @@ void loop() {
         // Aplicar decisiones de relés
         relayControl.apply(stateMachine);
 
+        // --- Protección de corriente (CT propio, no toca el DSE 7320) ---
+        float amps = sensorCurrent.readAmps();
+        bool relays[NUM_BOMBAS];
+        for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
+            relays[i] = relayControl.getRelayState(i);
+        }
+        switch (currentProtector.update(now, amps, relays)) {
+            case ProtectorEvent::TRIP_OVERLOAD:
+                // Sobrecarga sostenida: EMERGENCIA (relés abiertos, requiere reset operador)
+                stateMachine.triggerEmergencia(ERR_SOBRECARGA);
+                commBridge.sendError(ERR_SOBRECARGA);
+                Serial.print("[PROT] TRIP sobrecarga generador: ");
+                Serial.print(amps, 1);
+                Serial.println("A");
+                break;
+            case ProtectorEvent::WARN_OVERLOAD:
+                commBridge.sendError(ERR_AVISO_SOBRECARGA);
+                Serial.print("[PROT] Aviso sobrecarga: ");
+                Serial.print(amps, 1);
+                Serial.println("A");
+                break;
+            case ProtectorEvent::CONTACTOR_WELDED:
+                commBridge.sendError(ERR_CONTACTOR_PEGADO);
+                Serial.println("[PROT] Corriente con relés abiertos (contactor pegado?)");
+                break;
+            case ProtectorEvent::CT_FAULT:
+                commBridge.sendError(ERR_SENSOR_CORRIENTE);
+                Serial.println("[PROT] Sensor de corriente fuera de rango");
+                break;
+            default:
+                break;
+        }
+        // Re-armar el trip solo cuando no hay emergencia activa
+        if (!stateMachine.hayEmergencia()) {
+            currentProtector.rearm();
+        }
+
         // Comunicación MCU <-> Linux
         commBridge.update(stateMachine, sensorLevel.getNivelPorcentaje());
 
-        // Heartbeat periódico
+        // Heartbeat periódico + telemetría de corriente (1Hz)
         static uint32_t last_hb = 0;
         if (now - last_hb >= HEARTBEAT_MS) {
             last_hb = now;
             commBridge.sendHeartbeat(stateMachine.getState(), sensorLevel.getNivelPorcentaje());
+            commBridge.sendCorriente(amps);
         }
     }
 

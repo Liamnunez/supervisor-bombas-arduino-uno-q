@@ -10,6 +10,14 @@ from typing import Optional, Callable
 from datetime import datetime
 from .models import SystemStatus, BombaStatus, SystemState, McuEvent, Alert
 
+# Mensajes para códigos de error del firmware (0x60xx = corriente/protección)
+MCU_ERROR_MESSAGES = {
+    0x6001: "SOBRECARGA GENERADOR - EMERGENCIA: bombas desconectadas (requiere reset de operador)",
+    0x6002: "Corriente con relés abiertos - posible contactor pegado",
+    0x6003: "Sensor de corriente (CT) fuera de rango o desconectado",
+    0x6010: "Aviso: corriente cerca del límite del generador",
+}
+
 
 class StateManager:
     def __init__(self, port: str = "/dev/ttyACM0", baudrate: int = 115200):
@@ -159,6 +167,20 @@ class StateManager:
             self.status.nivel_agua_pct = payload & 0xFF
             changed = True
             
+        elif event == McuEvent.CORRIENTE_UPDATE:
+            # Corriente total del generador (deciamperios -> A), CT propio
+            self.status.corriente_a = payload / 10.0
+            changed = True
+            
+        elif event == McuEvent.ERROR:
+            # Error del firmware (p.ej. protección de corriente 0x60xx)
+            level = "warning" if payload == 0x6010 else "critical"
+            self._emit_alert(
+                level, "MCU",
+                MCU_ERROR_MESSAGES.get(payload, f"Error MCU: 0x{payload:04X}"),
+                codigo=payload
+            )
+            changed = True
         elif event == McuEvent.HEARTBEAT:
             self.status.uptime_ms = timestamp
             self.status.state = SystemState((payload >> 8) & 0xFF)

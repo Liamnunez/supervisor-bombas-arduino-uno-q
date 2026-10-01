@@ -4,11 +4,12 @@ FastAPI + WebSocket - Dashboard telemetría Supervisor de Bombas
 
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import List, Set
+from typing import List, Optional, Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -16,11 +17,17 @@ from pydantic import BaseModel
 from .state import StateManager
 from .models import SystemStatus, Alert, SystemState, McuCommand
 from .alerts import AlertManager
+from .auth import AuthManager, COMMAND_REQUIRED_ROLE
 
 
 # Instancias globales
 state_manager = StateManager()
-alert_manager = AlertManager()
+# Alertas con persistencia local SQLite (no se pierden datos en caídas de red)
+alert_manager = AlertManager(
+    db_path=os.environ.get("SUPERVISOR_ALERTS_DB", "supervisor_alerts.db")
+)
+# Autenticación de comandos (FAIL-CLOSED si no hay contraseñas configuradas)
+auth_manager = AuthManager.from_env()
 active_websockets: Set[WebSocket] = set()
 
 
@@ -28,6 +35,9 @@ active_websockets: Set[WebSocket] = set()
 async def lifespan(app: FastAPI):
     # Startup
     print("[API] Iniciando telemetría...")
+    if not auth_manager.configured:
+        print("[API] ADVERTENCIA: sin SUPERVISOR_OPERATOR_PASSWORD/"
+              "SUPERVISOR_ADMIN_PASSWORD -> comandos REMOTOS BLOQUEADOS (fail-closed)")
     if not state_manager.start():
         print("[API] ADVERTENCIA: No se pudo conectar al MCU")
     
@@ -58,6 +68,29 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 class CommandRequest(BaseModel):
     command: str  # "set_modo_generador", "set_mantenimiento", "trigger_emergencia", "reset_emergencia"
     params: dict = {}
+
+
+class LoginRequest(BaseModel):
+    password: str
+
+
+def extract_token(request: Request) -> Optional[str]:
+    """Token desde 'Authorization: Bearer <t>' o cabecera 'X-Auth-Token'."""
+    auth_hdr = request.headers.get("Authorization", "")
+    if auth_hdr.lower().startswith("bearer "):
+        return auth_hdr[7:].strip()
+    return request.headers.get("X-Auth-Token")
+
+
+@app.post("/api/auth/login")
+async def login(req: LoginRequest):
+    """Intercambia contraseña por token (operator o admin)."""
+    result = auth_manager.login(req.password)
+    if not result:
+        auth_manager.audit("login", None, False, "credenciales inválidas")
+        raise HTTPException(401, "Credenciales inválidas")
+    auth_manager.audit("login", result["role"], True)
+    return result
 
 
 async def heartbeat_task():
@@ -147,10 +180,26 @@ async def get_alerts(limit: int = 100):
 
 
 @app.post("/api/command")
-async def send_command(req: CommandRequest):
+async def send_command(req: CommandRequest, request: Request):
+    # 1. Autenticación (fail-closed: sin token válido, nada se ejecuta)
+    role = auth_manager.verify(extract_token(request))
+    if role is None:
+        auth_manager.audit(req.command, None, False, "sin token válido")
+        raise HTTPException(401, "Autenticación requerida")
+
+    # 2. Comando conocido
+    if req.command not in COMMAND_REQUIRED_ROLE:
+        auth_manager.audit(req.command, role, False, "comando desconocido")
+        raise HTTPException(400, f"Comando desconocido: {req.command}")
+
+    # 3. Autorización por rol
+    if not auth_manager.authorize(role, req.command):
+        auth_manager.audit(req.command, role, False, "rol insuficiente")
+        raise HTTPException(403, f"Rol '{role}' no tiene permiso para {req.command}")
+
     success = False
     message = ""
-    
+
     if req.command == "set_modo_generador":
         generador = req.params.get("generador", False)
         success = state_manager.set_modo_generador(generador)
@@ -173,10 +222,10 @@ async def send_command(req: CommandRequest):
     elif req.command == "request_status":
         success = state_manager.request_status()
         message = "Estado solicitado"
-        
-    else:
-        raise HTTPException(400, f"Comando desconocido: {req.command}")
-    
+
+    # 4. Audit de la ejecución
+    auth_manager.audit(req.command, role, success, message)
+
     return {"success": success, "message": message}
 
 
@@ -221,7 +270,30 @@ async def websocket_endpoint(ws: WebSocket):
 async def handle_ws_command(ws: WebSocket, msg: dict):
     cmd = msg.get("command")
     params = msg.get("params", {})
-    
+    token = msg.get("token")
+
+    # Autenticación por WebSocket (mismo esquema que HTTP, fail-closed)
+    role = auth_manager.verify(token)
+    if role is None:
+        auth_manager.audit(str(cmd), None, False, "WS sin token válido")
+        await ws.send_text(json.dumps({
+            "type": "error", "command": cmd,
+            "error": "autenticación requerida"
+        }))
+        return
+    if cmd not in COMMAND_REQUIRED_ROLE:
+        auth_manager.audit(str(cmd), role, False, "comando desconocido (WS)")
+        await ws.send_text(json.dumps({
+            "type": "error", "command": cmd, "error": "comando desconocido"
+        }))
+        return
+    if not auth_manager.authorize(role, cmd):
+        auth_manager.audit(str(cmd), role, False, "rol insuficiente (WS)")
+        await ws.send_text(json.dumps({
+            "type": "error", "command": cmd, "error": "permiso denegado"
+        }))
+        return
+
     if cmd == "set_modo_generador":
         state_manager.set_modo_generador(params.get("generador", False))
     elif cmd == "set_mantenimiento":
@@ -232,7 +304,8 @@ async def handle_ws_command(ws: WebSocket, msg: dict):
         state_manager.reset_emergencia()
     elif cmd == "request_status":
         state_manager.request_status()
-    
+
+    auth_manager.audit(cmd, role, True, "WS")
     await ws.send_text(json.dumps({"type": "ack", "command": cmd}))
 
 

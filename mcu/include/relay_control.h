@@ -18,6 +18,10 @@ public:
     // Aplicar estado de relés según decisión de la máquina de estados
     void apply(const StateMachine& sm);
     
+    // Aplicar con arrays explícitos (útil para tests / simulación)
+    void applyDetailed(const bool plc_orders[NUM_BOMBAS],
+                       const bool allowed[NUM_BOMBAS]);
+    
     // Forzar todos los relés abiertos (emergencia)
     void emergencyOpenAll();
     

@@ -1,7 +1,7 @@
 # Makefile - Supervisor de Bombas Arduino UNO Q
 # Uso: make <target>
 
-.PHONY: help mcu-build mcu-flash mcu-monitor linux-install linux-run linux-service tests docs clean
+.PHONY: help mcu-build mcu-flash mcu-monitor linux-install linux-run linux-service tests tests-py tests-native tests-coverage docs clean
 
 # Default target
 help:
@@ -58,7 +58,7 @@ linux-install:
 
 linux-run:
 	@echo "[LINUX] Iniciando telemetría (FastAPI en puerto 8080)..."
-	cd linux && ./venv/bin/python app/main.py
+	cd linux && ./venv/bin/python -m app.main
 
 linux-service:
 	@echo "[LINUX] Instalando systemd service..."
@@ -74,9 +74,24 @@ linux-logs:
 # ==========================================
 # Tests
 # ==========================================
-tests:
-	@echo "[TESTS] Ejecutando tests Python..."
-	cd tests && python3 -m pytest -v
+tests: tests-py tests-native
+	@echo "[TESTS] Todos los tests completados"
+
+PYTEST := $(shell if [ -x test_venv/bin/pytest ]; then echo ./test_venv/bin/pytest; \
+           elif [ -x venv/bin/pytest ] ; then echo ./venv/bin/pytest; \
+           else echo python3 -m pytest; fi)
+
+tests-py:
+	@echo "[TESTS] Ejecutando tests Python ($(PYTEST))..."
+	$(PYTEST) tests/ -v
+
+tests-native:
+	@echo "[TESTS] Ejecutando tests nativos (lógica real del MCU)..."
+	mkdir -p tests/native/build
+	g++ -std=c++17 -Wall -Wextra -I mcu/include \
+		tests/native/test_current_protector.cpp mcu/src/current_protector.cpp \
+		-o tests/native/build/test_current_protector
+	./tests/native/build/test_current_protector
 
 tests-coverage:
 	@echo "[TESTS] Con cobertura..."

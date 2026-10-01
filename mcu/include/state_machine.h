@@ -33,6 +33,20 @@ public:
     // Forzar estado de emergencia
     void triggerEmergencia(uint16_t codigo_error);
     
+    // Reset de emergencia (comando operador) - limpia emergencia Y latch de bombas
+    void resetEmergencia();
+    
+    // Limpiar latch de fallos de bombas (comando operador)
+    void clearFaults();
+    
+    // ¿Emergencia activa?
+    bool hayEmergencia() const { return emergencia_activa; }
+    
+    // Estado real de la salida de relé de una bomba
+    bool getRelayClosed(uint8_t bomba_id) const {
+        return bomba_id < NUM_BOMBAS ? bombas[bomba_id].relay_closed : false;
+    }
+    
     // Solicitar modo mantenimiento
     void setMantenimiento(bool activo);
     
@@ -59,8 +73,10 @@ private:
         bool plc_order = false;      // PLC pide arranque
         bool feedback = false;       // Retorno aux confirma
         bool relay_closed = false;   // Relé nuestro cerrado
-        uint32_t last_change = 0;    // Último cambio estado
-        uint8_t fault_count = 0;     // Contador fallos
+        uint32_t last_change = 0;    // Último cambio estado PLC/feedback
+        uint32_t relay_change = 0;   // Último cambio de salida de relé
+        uint8_t fault_count = 0;     // Contador fallos (sticky hasta reset)
+        bool fault_latched = false;  // Evita repetir fault en el mismo episodio
     } bombas[NUM_BOMBAS];
     
     // Modo actual (detectado por hardware)

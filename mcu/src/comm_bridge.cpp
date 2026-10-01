@@ -72,6 +72,14 @@ void CommBridge::sendNivelUpdate(uint8_t nivel_pct) {
     uartWrite((uint8_t*)&msg, sizeof(McuMessage));
 }
 
+void CommBridge::sendCorriente(float amps) {
+    if (amps < 0) amps = 0;
+    uint16_t deciamps = static_cast<uint16_t>(amps * 10.0f);  // 0.1A de resolución
+    McuMessage msg;
+    buildMessage(msg, McuEvent::CORRIENTE_UPDATE, 0xFF, deciamps);
+    uartWrite((uint8_t*)&msg, sizeof(McuMessage));
+}
+
 void CommBridge::sendError(uint16_t codigo, const char* msg) {
     McuMessage m;
     buildMessage(m, McuEvent::ERROR, 0xFF, codigo);
@@ -144,8 +152,9 @@ void CommBridge::handleCommand(const McuMessage& msg, StateMachine& sm) {
             break;
         }
         case McuEvent::ERROR: {
-            // Reset de emergencia
+            // Reset de emergencia + latch de fallos (comando operador)
             if (msg.payload == 0xFFFF) {
+                sm.resetEmergencia();
                 sm.setMantenimiento(false);
                 // Si no hay emergencia HW, vuelve a normal/generador
             }

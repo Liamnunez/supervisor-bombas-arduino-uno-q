@@ -8,12 +8,20 @@ Type=simple
 User=root
 WorkingDirectory=/home/administrador/opencode-test/linux
 Environment=PATH=/home/administrador/opencode-test/linux/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
-ExecStart=/home/administrador/opencode-test/linux/venv/bin/python app/main.py
+ExecStart=/home/administrador/opencode-test/linux/venv/bin/python -m app.main
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=telemetry
+
+# Autenticación de comandos remotos (FAIL-CLOSED: si no está definida,
+# ningún comando remoto se acepta - solo lectura/telemetría)
+# Environment=SUPERVISOR_OPERATOR_PASSWORD=cambie-esta-clave
+# Environment=SUPERVISOR_ADMIN_PASSWORD=cambie-esta-clave-admin
+# Environment=SUPERVISOR_AUTH_SECRET=clave-aleatoria-larga
+Environment=SUPERVISOR_AUDIT_LOG=/home/administrador/opencode-test/linux/audit.log
+Environment=SUPERVISOR_ALERTS_DB=/home/administrador/opencode-test/linux/alerts.db
 
 # Seguridad
 NoNewPrivileges=true
