@@ -15,11 +15,13 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=telemetry
 
-# Autenticación de comandos remotos (FAIL-CLOSED: si no está definida,
-# ningún comando remoto se acepta - solo lectura/telemetría)
-# Environment=SUPERVISOR_OPERATOR_PASSWORD=cambie-esta-clave
-# Environment=SUPERVISOR_ADMIN_PASSWORD=cambie-esta-clave-admin
-# Environment=SUPERVISOR_AUTH_SECRET=clave-aleatoria-larga
+# Autenticación (definir en /etc/systemd/system/telemetry.service.d/override.conf
+# o con `systemctl edit telemetry` — NUNCA en este archivo base)
+# Environment=SUPERVISOR_OPERATOR_PASSWORD=...
+# Environment=SUPERVISOR_ADMIN_PASSWORD=...
+# Environment=SUPERVISOR_AUTH_SECRET=...
+# Environment=TELEGRAM_BOT_TOKEN=...
+# Environment=TELEGRAM_CHAT_ID=...
 Environment=SUPERVISOR_AUDIT_LOG=/home/administrador/opencode-test/linux/audit.log
 Environment=SUPERVISOR_ALERTS_DB=/home/administrador/opencode-test/linux/alerts.db
 

@@ -1,8 +1,45 @@
 """
 FastAPI + WebSocket - Dashboard telemetría Supervisor de Bombas
-"""
+
+## Endpoints
+
+### Estado y Telemetría
+- **GET /api/status** — Estado actual completo del sistema
+- **GET /api/stats** — Estadísticas de comunicación MCU
+- **GET /api/alerts** — Alertas recientes (límite configurable)
+- **GET /api/history** — Historial de alertas por horas
+- **GET /api/export/csv** — Exportar alertas a CSV
+- **GET /api/bot/stats** — Estado del Telegram Bot
+
+### Configuración (requiere autenticación)
+- **GET /api/config/thresholds** — Obtener umbrales actuales
+- **POST /api/config/thresholds** — Actualizar umbrales (solo admin)
+
+### Comandos (requieren autenticación + rol)
+- **POST /api/command** — Ejecutar comando (ver modelos abajo)
+- **POST /api/auth/login** — Obtener token JWT (8h)
+
+### WebSocket
+- **GET /ws** — Stream en tiempo real (status, alerts, heartbeat)
+
+## Modelos de Comando
+
+```json
+{
+  "command": "set_modo_generador|set_mantenimiento|trigger_emergencia|reset_emergencia|request_status",
+  "params": {}
+}
+```
+
+## Autenticación
+- **Operator**: reset_emergencia, set_mantenimiento, request_status
+- **Admin**: todo lo anterior + set_modo_generador, trigger_emergencia
+- **Fail-closed**: sin contraseñas configuradas → ningún comando remoto
+```
 
 import asyncio
+import csv
+import io
 import json
 import os
 from contextlib import asynccontextmanager
@@ -12,10 +49,9 @@ from typing import List, Optional, Set
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
-import csv
-import io
 from .state import StateManager
 from .models import SystemStatus, Alert, SystemState, McuCommand
 from .alerts import AlertManager
@@ -75,8 +111,37 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Supervisor de Bombas - Telemetría",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    description=__doc__,
+    contact={"name": "Supervisor de Bombas", "url": "https://github.com/Liamnunez/supervisor-bombas-arduino-uno-q"},
+    license_info={"name": "Internal Use", "url": "https://github.com/Liamnunez/supervisor-bombas-arduino-uno-q"},
+    openapi_tags=[
+        {"name": "telemetria", "description": "Estado, alertas, historial, exportación"},
+        {"name": "configuracion", "description": "Umbrales y configuración (auth requerido)"},
+        {"name": "comandos", "description": "Comandos de control (auth + rol requerido)"},
+        {"name": "auth", "description": "Autenticación y tokens"},
+        {"name": "websocket", "description": "Stream en tiempo real"},
+        {"name": "bot", "description": "Telegram Bot"},
+    ]
 )
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        contact=app.contact,
+        license_info=app.license_info,
+        tags=app.openapi_tags,
+    )
+    openapi_schema["info"]["x-logo"] = {"url": "https://raw.githubusercontent.com/Liamnunez/supervisor-bombas-arduino-uno-q/main/docs/logo.png"}
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 # Servir archivos estáticos
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -99,7 +164,7 @@ def extract_token(request: Request) -> Optional[str]:
     return request.headers.get("X-Auth-Token")
 
 
-@app.post("/api/auth/login")
+@app.post("/api/auth/login", tags=["auth"])
 async def login(req: LoginRequest):
     """Intercambia contraseña por token (operator o admin)."""
     result = auth_manager.login(req.password)
@@ -184,17 +249,17 @@ async def root():
     return FileResponse("static/index.html")
 
 
-@app.get("/api/status")
+@app.get("/api/status", tags=["telemetria"])
 async def get_status():
     return state_manager.status.to_dict()
 
 
-@app.get("/api/stats")
+@app.get("/api/stats", tags=["telemetria"])
 async def get_stats():
     return state_manager.get_stats()
 
 
-@app.get("/api/alerts")
+@app.get("/api/alerts", tags=["telemetria"])
 async def get_alerts(limit: int = 100):
     return [a.to_dict() for a in alert_manager.get_recent(limit)]
 
