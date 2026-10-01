@@ -14,10 +14,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
+import csv
+import io
 from .state import StateManager
 from .models import SystemStatus, Alert, SystemState, McuCommand
 from .alerts import AlertManager
 from .auth import AuthManager, COMMAND_REQUIRED_ROLE
+from .telegram_bot import create_bot_from_env, TelegramBot
 
 
 # Instancias globales
@@ -28,11 +31,14 @@ alert_manager = AlertManager(
 )
 # Autenticación de comandos (FAIL-CLOSED si no hay contraseñas configuradas)
 auth_manager = AuthManager.from_env()
+# Telegram Bot (opcional, se inicia si hay token/chat_id en entorno)
+telegram_bot: Optional[TelegramBot] = None
 active_websockets: Set[WebSocket] = set()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global telegram_bot
     # Startup
     print("[API] Iniciando telemetría...")
     if not auth_manager.configured:
@@ -45,6 +51,15 @@ async def lifespan(app: FastAPI):
     state_manager.on_status_change = on_status_change
     state_manager.on_alert = on_alert
     
+    # Telegram Bot (opcional)
+    telegram_bot = create_bot_from_env(alert_manager)
+    if telegram_bot and telegram_bot.start():
+        print("[API] Telegram Bot iniciado")
+    elif telegram_bot:
+        print("[API] ADVERTENCIA: Telegram Bot no pudo iniciar")
+    else:
+        print("[API] Telegram Bot no configurado (TELEGRAM_BOT_TOKEN/CHAT_ID)")
+    
     # Task de heartbeat
     asyncio.create_task(heartbeat_task())
     
@@ -52,6 +67,8 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("[API] Cerrando telemetría...")
+    if telegram_bot:
+        telegram_bot.stop()
     state_manager.stop()
 
 
@@ -180,6 +197,132 @@ async def get_stats():
 @app.get("/api/alerts")
 async def get_alerts(limit: int = 100):
     return [a.to_dict() for a in alert_manager.get_recent(limit)]
+
+
+# ============================================================
+# Nuevos endpoints: historial, exportación, umbrales, bot
+# ============================================================
+
+class ThresholdsConfig(BaseModel):
+    # AlertManager thresholds
+    nivel_critico_bajo: Optional[int] = None
+    nivel_critico_alto: Optional[int] = None
+    feedback_timeout_s: Optional[int] = None
+    heartbeat_timeout_s: Optional[int] = None
+    dedup_window_s: Optional[int] = None
+    # CurrentProtector thresholds (se envían al MCU si se implementa)
+    corriente_aviso_a: Optional[float] = None
+    corriente_trip_a: Optional[float] = None
+    corriente_reset_a: Optional[float] = None
+
+
+@app.get("/api/history")
+async def get_history(
+    hours: int = 24,
+    limit: int = 1000,
+    request: Request = None
+):
+    """Historial de alertas para gráficas (últimas N horas)."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticación requerida")
+    
+    from datetime import timedelta
+    since = datetime.now() - timedelta(hours=hours)
+    alerts = alert_manager.get_recent(limit)
+    filtered = [a for a in alerts if a.timestamp >= since]
+    return [a.to_dict() for a in filtered]
+
+
+@app.get("/api/export/csv")
+async def export_csv(hours: int = 24, request: Request = None):
+    """Exportar alertas a CSV."""
+    if request:
+        role = auth_manager.verify(extract_token(request))
+        if role is None:
+            raise HTTPException(401, "Autenticación requerida")
+    
+    from datetime import timedelta
+    since = datetime.now() - timedelta(hours=hours)
+    alerts = [a for a in alert_manager.get_recent(5000) if a.timestamp >= since]
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["timestamp", "level", "source", "message", "bomba_id", "codigo"])
+    for a in alerts:
+        writer.writerow([
+            a.timestamp.isoformat(),
+            a.level,
+            a.source,
+            a.message,
+            a.bomba_id if a.bomba_id is not None else "",
+            f"0x{a.codigo:04X}" if a.codigo is not None else ""
+        ])
+    
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=alertas_{datetime.now():%Y%m%d_%H%M}.csv"}
+    )
+
+
+@app.get("/api/config/thresholds")
+async def get_thresholds(request: Request):
+    """Obtener umbrales actuales (solo admin/operator)."""
+    role = auth_manager.verify(extract_token(request))
+    if role is None:
+        raise HTTPException(401, "Autenticación requerida")
+    
+    return {
+        "nivel_critico_bajo": alert_manager.nivel_critico_bajo,
+        "nivel_critico_alto": alert_manager.nivel_critico_alto,
+        "feedback_timeout_s": alert_manager.feedback_timeout_s,
+        "heartbeat_timeout_s": alert_manager.heartbeat_timeout_s,
+        "dedup_window_s": alert_manager.dedup_window_s,
+        # CurrentProtector thresholds (si se añaden al AlertManager en futuro)
+    }
+
+
+@app.post("/api/config/thresholds")
+async def set_thresholds(cfg: ThresholdsConfig, request: Request):
+    """Actualizar umbrales (solo admin)."""
+    role = auth_manager.verify(extract_token(request))
+    if role != "admin":
+        raise HTTPException(403, "Solo admin puede cambiar umbrales")
+    
+    changed = []
+    if cfg.nivel_critico_bajo is not None:
+        alert_manager.nivel_critico_bajo = max(0, min(100, cfg.nivel_critico_bajo))
+        changed.append("nivel_critico_bajo")
+    if cfg.nivel_critico_alto is not None:
+        alert_manager.nivel_critico_alto = max(0, min(100, cfg.nivel_critico_alto))
+        changed.append("nivel_critico_alto")
+    if cfg.feedback_timeout_s is not None:
+        alert_manager.feedback_timeout_s = max(1, cfg.feedback_timeout_s)
+        changed.append("feedback_timeout_s")
+    if cfg.heartbeat_timeout_s is not None:
+        alert_manager.heartbeat_timeout_s = max(1, cfg.heartbeat_timeout_s)
+        changed.append("heartbeat_timeout_s")
+    if cfg.dedup_window_s is not None:
+        alert_manager.dedup_window_s = max(0, cfg.dedup_window_s)
+        changed.append("dedup_window_s")
+    
+    auth_manager.audit("set_thresholds", role, True, f"cambiados: {', '.join(changed)}")
+    return {"success": True, "changed": changed, "current": await get_thresholds(request)}
+
+
+@app.get("/api/bot/stats")
+async def get_bot_stats(request: Request):
+    """Estadísticas del Telegram Bot."""
+    role = auth_manager.verify(extract_token(request))
+    if role is None:
+        raise HTTPException(401, "Autenticación requerida")
+    
+    if not telegram_bot:
+        return {"configured": False}
+    return {"configured": True, **telegram_bot.get_stats()}
 
 
 @app.post("/api/command")

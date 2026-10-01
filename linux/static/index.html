@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Supervisor de Bombas - Telemetría</title>
+    <!-- Chart.js via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; line-height: 1.6; }
@@ -44,6 +46,8 @@
         .btn-warning:hover { background: #d97706; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
+        .btn-secondary { background: #475569; color: white; }
+        .btn-secondary:hover { background: #334155; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .alerts { max-height: 300px; overflow-y: auto; }
         .alert { padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 0.8rem; display: flex; gap: 10px; animation: slideIn 0.3s; }
@@ -59,7 +63,33 @@
         .connection-dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
         .connection-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
         .connection-dot.disconnected { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
-        @media (max-width: 768px) { .metrics { grid-template-columns: 1fr; } .controls { flex-direction: column; } .btn { width: 100%; } }
+        
+        /* Chart cards */
+        .chart-card { grid-column: 1 / -1; }
+        .chart-wrapper { position: relative; height: 200px; }
+        
+        /* Threshold editor modal */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: #1e293b; padding: 32px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; border: 1px solid #334155; }
+        .modal-content h2 { margin-bottom: 8px; }
+        .modal-content p { color: #94a3b8; margin-bottom: 16px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 6px; }
+        .form-group input { width: 100%; padding: 10px 12px; border: 1px solid #334155; border-radius: 8px; background: #0f172a; color: #e2e8f0; font-size: 0.9rem; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        
+        /* Toast notifications */
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; font-weight: 500; z-index: 1100; animation: slideIn 0.3s; }
+        .toast.success { background: #166534; border: 1px solid #22c55e; }
+        .toast.error { background: #7f1d1d; border: 1px solid #ef4444; }
+        .toast.info { background: #1e3a5f; border: 1px solid #3b82f6; }
+        
+        @media (max-width: 768px) { 
+            .metrics { grid-template-columns: 1fr; } 
+            .controls { flex-direction: column; } 
+            .btn { width: 100%; }
+            .form-row { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -130,6 +160,16 @@
                 <div id="bombas-container"></div>
             </div>
 
+            <!-- Gráficas: Nivel + Corriente -->
+            <div class="card chart-card">
+                <h2>📈 Nivel de Agua (24h)</h2>
+                <div class="chart-wrapper"><canvas id="chart-level"></canvas></div>
+            </div>
+            <div class="card chart-card">
+                <h2>⚡ Corriente Generador (24h)</h2>
+                <div class="chart-wrapper"><canvas id="chart-current"></canvas></div>
+            </div>
+
             <!-- Controles -->
             <div class="card">
                 <h2>Controles</h2>
@@ -141,6 +181,8 @@
                     <button class="btn btn-danger" onclick="sendCmd('trigger_emergencia', {codigo: 65280})">EMERGENCIA</button>
                     <button class="btn btn-primary" onclick="sendCmd('reset_emergencia', {})">Reset Emergencia</button>
                     <button class="btn btn-primary" onclick="sendCmd('request_status', {})">Actualizar Estado</button>
+                    <button class="btn btn-secondary" onclick="showThresholdEditor()">⚙️ Umbrales</button>
+                    <button class="btn btn-secondary" onclick="exportCSV()">📥 CSV</button>
                 </div>
             </div>
 
@@ -149,6 +191,46 @@
                 <h2>Alertas Recientes</h2>
                 <div id="alerts-container" class="alerts"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Threshold Editor Modal -->
+    <div id="threshold-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>⚙️ Configurar Umbrales</h2>
+            <p>Cambios aplicados inmediatamente (requiere rol admin)</p>
+            <form id="threshold-form" onsubmit="saveThresholds(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nivel crítico BAJO (%)</label>
+                        <input type="number" id="th-nivel-bajo" min="0" max="100" step="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nivel crítico ALTO (%)</label>
+                        <input type="number" id="th-nivel-alto" min="0" max="100" step="1" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Feedback timeout (s)</label>
+                        <input type="number" id="th-feedback-timeout" min="1" max="300" step="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Heartbeat timeout (s)</label>
+                        <input type="number" id="th-heartbeat-timeout" min="1" max="300" step="1" required>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Dedup window (s)</label>
+                        <input type="number" id="th-dedup-window" min="0" max="3600" step="1" required>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary" style="flex: 1;">Guardar</button>
+                    <button type="button" class="btn" onclick="hideThresholdEditor()" style="flex: 1; background: #334155;">Cancelar</button>
+                </div>
+            </form>
         </div>
     </div>
 

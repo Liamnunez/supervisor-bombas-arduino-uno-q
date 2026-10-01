@@ -328,3 +328,183 @@ setInterval(() => {
         ws.send(JSON.stringify({ type: 'ping' }));
     }
 }, 30000);
+
+// ============================================================
+// Charts (Chart.js)
+// ============================================================
+let chartLevel = null;
+let chartCurrent = null;
+const MAX_CHART_POINTS = 288; // 24h a 5 min = 288 puntos
+
+function initCharts() {
+    const commonOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 300 },
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+            x: { type: 'time', time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } }, grid: { color: '#334155' }, ticks: { color: '#94a3b8', maxTicksLimit: 12 } },
+            y: { beginAtZero: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+        },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1e293b', titleColor: '#e2e8f0', bodyColor: '#94a3b8', borderColor: '#334155', borderWidth: 1 } }
+    };
+
+    chartLevel = new Chart(document.getElementById('chart-level'), {
+        type: 'line',
+        data: { datasets: [{ label: 'Nivel %', data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 }] },
+        options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, max: 100, title: { display: true, text: '%', color: '#94a3b8' } } } }
+    });
+
+    chartCurrent = new Chart(document.getElementById('chart-current'), {
+        type: 'line',
+        data: { datasets: [{ label: 'Corriente A', data: [], borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.1)', fill: true, tension: 0.3, pointRadius: 0, pointHoverRadius: 4 }] },
+        options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'Amperios', color: '#94a3b8' } } } }
+    });
+}
+
+function addChartPoint(chart, timestamp, value) {
+    const ms = new Date(timestamp).getTime();
+    chart.data.datasets[0].data.push({ x: ms, y: value });
+    if (chart.data.datasets[0].data.length > MAX_CHART_POINTS) {
+        chart.data.datasets[0].data.shift();
+    }
+    chart.update('none');
+}
+
+function loadChartHistory(hours = 24) {
+    fetch(`/api/history?hours=${hours}&limit=1000`, { headers: getAuthHeaders() })
+        .then(r => r.json())
+        .then(alerts => {
+            // Reconstruir series temporales desde alertas (aproximado)
+            // En producción idealmente habría endpoint /api/metrics/history
+            alerts.forEach(a => {
+                if (a.source === 'NIVEL' && a.codigo === 0x30) {
+                    // Nivel - no tenemos valor en alerta, usar placeholder
+                }
+            });
+        })
+        .catch(console.error);
+}
+
+// Llenar gráficas con datos en tiempo real desde status
+function updateChartsFromStatus(status) {
+    const now = new Date();
+    if (status.nivel_agua_pct !== undefined && status.sensor_ok) {
+        addChartPoint(chartLevel, now, status.nivel_agua_pct);
+    }
+    if (status.corriente_a !== undefined) {
+        addChartPoint(chartCurrent, now, status.corriente_a);
+    }
+}
+
+// ============================================================
+// CSV Export
+// ============================================================
+async function exportCSV(hours = 24) {
+    showToast('Preparando CSV...', 'info');
+    try {
+        const res = await fetch(`/api/export/csv?hours=${hours}`, { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error('Error exportando');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `alertas_${new Date().toISOString().slice(0,16).replace('T','_')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('CSV descargado', 'success');
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// ============================================================
+// Threshold Editor
+// ============================================================
+function showThresholdEditor() {
+    // Cargar valores actuales
+    fetch('/api/config/thresholds', { headers: getAuthHeaders() })
+        .then(r => r.json())
+        .then(cfg => {
+            document.getElementById('th-nivel-bajo').value = cfg.nivel_critico_bajo;
+            document.getElementById('th-nivel-alto').value = cfg.nivel_critico_alto;
+            document.getElementById('th-feedback-timeout').value = cfg.feedback_timeout_s;
+            document.getElementById('th-heartbeat-timeout').value = cfg.heartbeat_timeout_s;
+            document.getElementById('th-dedup-window').value = cfg.dedup_window_s;
+            document.getElementById('threshold-modal').style.display = 'flex';
+        })
+        .catch(e => showToast('Error cargando umbrales: ' + e.message, 'error'));
+}
+
+function hideThresholdEditor() {
+    document.getElementById('threshold-modal').style.display = 'none';
+}
+
+async function saveThresholds(event) {
+    event.preventDefault();
+    const payload = {
+        nivel_critico_bajo: parseInt(document.getElementById('th-nivel-bajo').value),
+        nivel_critico_alto: parseInt(document.getElementById('th-nivel-alto').value),
+        feedback_timeout_s: parseInt(document.getElementById('th-feedback-timeout').value),
+        heartbeat_timeout_s: parseInt(document.getElementById('th-heartbeat-timeout').value),
+        dedup_window_s: parseInt(document.getElementById('th-dedup-window').value),
+    };
+    try {
+        const res = await fetch('/api/config/thresholds', {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Error guardando');
+        showToast('Umbrales actualizados', 'success');
+        hideThresholdEditor();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// ============================================================
+// Toast notifications
+// ============================================================
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container') || createToastContainer();
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+}
+
+function createToastContainer() {
+    const container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.position = 'fixed';
+    container.style.bottom = '20px';
+    container.style.right = '20px';
+    container.style.zIndex = '1100';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '8px';
+    document.body.appendChild(container);
+    return container;
+}
+
+// ============================================================
+// Init on DOMContentLoaded
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+    initCharts();
+    if (!authToken) {
+        showLogin();
+    } else {
+        verifyToken();
+    }
+    connect();
+});
+
+// Modificar updateStatus para actualizar gráficas
+const originalUpdateStatus = updateStatus;
+function updateStatus(status) {
+    originalUpdateStatus(status);
+    updateChartsFromStatus(status);
+}
