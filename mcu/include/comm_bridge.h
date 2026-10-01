@@ -23,8 +23,8 @@ public:
     // Envío de eventos
     void sendStateChange(SystemState nuevo, SystemState anterior);
     void sendBombaEvent(uint8_t bomba_id, McuEvent evento);
-    void sendHeartbeat(SystemState estado, uint8_t nivel_pct);
-    void sendNivelUpdate(uint8_t nivel_pct);
+    void sendHeartbeat(SystemState estado, uint8_t nivel_pct, bool sensor_ok);
+    void sendNivelUpdate(uint8_t nivel_pct, bool sensor_ok);
     void sendCorriente(float amps);   // Telemetría corriente generador (1Hz)
     void sendError(uint16_t codigo, const char* msg = nullptr);
     

@@ -37,7 +37,7 @@ class StateManager:
         
         # Buffer RX
         self.rx_buffer = bytearray()
-        self.MSG_SIZE = 12  # McuMessage size
+        self.MSG_SIZE = 11  # McuMessage size (11 bytes packed)
         
         # Stats
         self.rx_count = 0
@@ -124,7 +124,7 @@ class StateManager:
             self.crc_errors += 1
             return
         
-        # Parsear mensaje (struct: BBBIHB B = 12 bytes)
+        # Parsear mensaje (struct: BBBIHBB = 11 bytes)
         # start_byte, msg_type, bomba_id, timestamp, payload, crc8, end_byte
         start_byte, msg_type, bomba_id, timestamp, payload, crc8, end_byte = struct.unpack('<BBBIHBB', data)
         
@@ -138,13 +138,14 @@ class StateManager:
         self._process_event(event, bomba_id, timestamp, payload)
     
     def _validate_crc(self, data: bytes) -> bool:
-        # CRC8 sobre bytes 1-10 (excluye start_byte, crc8, end_byte)
+        # CRC8 sobre bytes 1-9 (excluye start_byte, crc8, end_byte) = 9 bytes
+        # Formato: [0]=0xAA, [1]=msg_type, [2]=bomba_id, [3-6]=timestamp, [7-8]=payload, [9]=crc8, [10]=0x55
         crc = 0
-        for b in data[1:11]:
+        for b in data[1:10]:
             crc ^= b
             for _ in range(8):
                 crc = (crc << 1) ^ 0x07 if (crc & 0x80) else (crc << 1)
-        return crc == data[11]
+        return crc == data[10]
     
     def _process_event(self, event: McuEvent, bomba_id: int, timestamp: int, payload: int):
         changed = False
@@ -184,8 +185,14 @@ class StateManager:
         elif event == McuEvent.HEARTBEAT:
             self.status.uptime_ms = timestamp
             self.status.state = SystemState((payload >> 8) & 0xFF)
-            self.status.nivel_agua_pct = payload & 0xFF
+            self.status.nivel_agua_pct = payload & 0x7F
+            self.status.sensor_ok = bool(payload & 0x80)
             self.status.last_heartbeat = datetime.now()
+            changed = True
+            
+        elif event == McuEvent.NIVEL_UPDATE:
+            self.status.nivel_agua_pct = payload & 0x7F
+            self.status.sensor_ok = bool(payload & 0x80)
             changed = True
             
         elif event in (McuEvent.BOMBA_START, McuEvent.BOMBA_STOP, 
@@ -222,27 +229,30 @@ class StateManager:
         if self.on_alert:
             self.on_alert(alert)
     
-    def send_command(self, cmd: int, bomba_id: int, payload: int) -> bool:
+    def send_command(self, event: int, bomba_id: int, payload: int) -> bool:
+        """Enviar comando alineado con firmware:
+        event = McuEvent opcode (0x40 MODO_CHANGE, 0x10 STATE_CHANGE, 0xFF ERROR)
+        bomba_id = 0xFF (N/A para comandos de estado)
+        payload = según spec firmware"""
         if not self.serial or not self.serial.is_open:
             return False
         
-        # Formato: start(0xAA), cmd, bomba_id, timestamp(0), payload, crc8, end(0x55)
-        msg = bytearray(12)
+        msg = bytearray(11)
         msg[0] = 0xAA
-        msg[1] = cmd
+        msg[1] = event & 0xFF
         msg[2] = bomba_id & 0xFF
         msg[3:7] = struct.pack('<I', 0)  # timestamp = 0 para comandos
         msg[7:9] = struct.pack('<H', payload)
-        msg[10] = 0  # CRC placeholder
-        msg[11] = 0x55
+        # msg[9] = crc placeholder (will be overwritten)
+        msg[10] = 0x55
         
-        # Calcular CRC
+        # Calcular CRC8 sobre bytes 1-9 (excluye start_byte, crc8, end_byte)
         crc = 0
-        for b in msg[1:11]:
+        for b in msg[1:10]:
             crc ^= b
             for _ in range(8):
                 crc = (crc << 1) ^ 0x07 if (crc & 0x80) else (crc << 1)
-        msg[10] = crc
+        msg[9] = crc
         
         try:
             self.serial.write(msg)
@@ -253,21 +263,34 @@ class StateManager:
             print(f"[STATE] Error enviando comando: {e}")
             return False
     
-    # Comandos de alto nivel
+    # Comandos de alto nivel (mapeados a opcodes de firmware)
+    # Firmware espera:
+    # - MODO_CHANGE (0x40): payload bit 0 = 1 (GEN) / 0 (RED)
+    # - STATE_CHANGE (0x10): payload = (error_code << 8) | state
+    # - ERROR (0xFF): payload = 0xFFFF para reset
     def set_modo_generador(self, generador: bool) -> bool:
-        return self.send_command(0x01, 0xFF, 1 if generador else 0)
+        return self.send_command(0x40, 0xFF, 1 if generador else 0)
     
     def set_mantenimiento(self, activo: bool) -> bool:
-        return self.send_command(0x02, 0xFF, 1 if activo else 0)
+        if activo:
+            # STATE_CHANGE con state=MANTENIMIENTO (3)
+            return self.send_command(0x10, 0xFF, (0 << 8) | 3)
+        else:
+            # Reset mantenimiento: forzar modo según HW (ERROR 0xFFFF limpia todo)
+            return self.send_command(0xFF, 0xFF, 0xFFFF)
     
     def trigger_emergencia(self, codigo: int) -> bool:
-        return self.send_command(0x03, 0xFF, codigo)
+        # STATE_CHANGE con state=EMERGENCIA (2) y error_code en high byte
+        return self.send_command(0x10, 0xFF, ((codigo & 0xFF) << 8) | 2)
     
     def reset_emergencia(self) -> bool:
-        return self.send_command(0x04, 0xFF, 0xFFFF)
+        # ERROR con payload 0xFFFF
+        return self.send_command(0xFF, 0xFF, 0xFFFF)
     
     def request_status(self) -> bool:
-        return self.send_command(0x10, 0xFF, 0)
+        # No hay opcode específico para request status en firmware;
+        # se puede usar HEARTBEAT request o similar. De momento no-op.
+        return True
     
     def get_stats(self) -> dict:
         return {

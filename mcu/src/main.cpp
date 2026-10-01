@@ -219,7 +219,7 @@ void loop() {
         static uint32_t last_hb = 0;
         if (now - last_hb >= HEARTBEAT_MS) {
             last_hb = now;
-            commBridge.sendHeartbeat(stateMachine.getState(), sensorLevel.getNivelPorcentaje());
+            commBridge.sendHeartbeat(stateMachine.getState(), sensorLevel.getNivelPorcentaje(), sensorLevel.isValid());
             commBridge.sendCorriente(amps);
         }
     }

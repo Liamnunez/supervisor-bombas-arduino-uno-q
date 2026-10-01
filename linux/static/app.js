@@ -8,6 +8,21 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT = 10;
 const RECONNECT_DELAY = 3000;
 
+// Token de autenticación (almacenado en sessionStorage)
+let authToken = sessionStorage.getItem('supervisor_token') || null;
+
+function setAuthToken(token) {
+    authToken = token;
+    if (token) sessionStorage.setItem('supervisor_token', token);
+    else sessionStorage.removeItem('supervisor_token');
+}
+
+function getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+    return headers;
+}
+
 const stateLabels = {
     0: "NORMAL (RED)",
     1: "GENERADOR",
@@ -239,19 +254,73 @@ function updateStats(stats) {
 
 function sendCmd(command, params) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'command', command, params }));
+        const msg = { type: 'command', command, params };
+        if (authToken) msg.token = authToken;
+        ws.send(JSON.stringify(msg));
     } else {
         // Fallback HTTP
         fetch('/api/command', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(),
             body: JSON.stringify({ command, params })
         }).then(r => r.json()).then(console.log).catch(console.error);
     }
 }
 
-// Iniciar conexión
-connect();
+// Iniciar: verificar token y mostrar login si no hay
+document.addEventListener('DOMContentLoaded', () => {
+    if (!authToken) {
+        showLogin();
+    } else {
+        // Verificar token con el servidor
+        verifyToken();
+    }
+    connect();
+});
+
+function showLogin() {
+    document.getElementById('login-modal').style.display = 'flex';
+}
+
+function hideLogin() {
+    document.getElementById('login-modal').style.display = 'none';
+}
+
+async function handleLogin(event) {
+    event.preventDefault();
+    const password = document.getElementById('login-password').value;
+    const errorDiv = document.getElementById('login-error');
+    
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+        });
+        if (!res.ok) throw new Error('Credenciales inválidas');
+        const data = await res.json();
+        setAuthToken(data.token);
+        hideLogin();
+        console.log('[AUTH] Login OK, role:', data.role);
+    } catch (e) {
+        errorDiv.textContent = e.message;
+        errorDiv.style.display = 'block';
+    }
+}
+
+async function verifyToken() {
+    try {
+        const res = await fetch('/api/status', { headers: getAuthHeaders() });
+        if (!res.ok) {
+            setAuthToken(null);
+            showLogin();
+        }
+    } catch (e) {
+        console.warn('[AUTH] Token verify failed:', e);
+        setAuthToken(null);
+        showLogin();
+    }
+}
 
 // Ping periódico para mantener conexión viva
 setInterval(() => {

@@ -166,16 +166,17 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 ---
 
-## Métricas de Confiabilidad Objetivo
+## Métricas de Confiabilidad Objetivo (informativas, sin análisis formal)
 
-| Métrica | Objetivo | Método Verificación |
-|---------|----------|---------------------|
-| MTBF (Mean Time Between Failures) | > 50,000 horas | Cálculo componentes + test acelerado |
-| MTTR (Mean Time To Recovery) | < 15 min | Procedimientos documentados |
-| Probabilidad fallo peligroso (PFD) | < 10⁻³ | Análisis IEC 61508 SIL 1 |
+| Métrica | Objetivo de diseño | Nota |
+|---------|--------------------|------|
+| MTBF (Mean Time Between Failures) | > 50,000 horas | Cálculo componentes + test acelerado (pendiente) |
+| MTTR (Mean Time To Recovery) | < 15 min | Procedimientos documentados (pendiente) |
 | Tiempo detección fallo crítico | < 2.1s | Feedback timeout + 1 ciclo |
 | Tiempo reacción emergencia | < 10ms | Loop 10ms + escritura GPIO |
-| Disponibilidad sistema | 99.9% | Diseño redundante en capas |
+| Disponibilidad sistema objetivo | 99.9% | Diseño redundante en capas (pendiente validación) |
+
+> **Nota:** No se afirma cumplimiento de SIL, PFD, IEC 61508 ni ninguna norma de seguridad funcional. Estos valores son *objetivos de diseño interno* sin análisis formal de soporte. Cualquier uso en funciones de seguridad requiere evaluación independiente.
 
 ---
 
@@ -198,4 +199,4 @@ La arquitectura **en serie con relés NO** garantiza que **cualquier fallo indiv
 
 El único modo de fallo peligroso (contactos relé/contacto soldados) es **detectado activamente** por la comparación PLC vs Feedback, disparando EMERGENCIA global.
 
-**Nivel de seguridad estimado: SIL 1 (IEC 61508) compatible para aplicación industrial no critica de seguridad personal.**
+**Nivel de seguridad: Concepto/prototipo sin evaluación formal de integridad de seguridad. No apto para funciones de seguridad certificadas sin análisis independiente.**

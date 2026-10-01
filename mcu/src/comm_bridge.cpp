@@ -59,16 +59,17 @@ void CommBridge::sendBombaEvent(uint8_t bomba_id, McuEvent evento) {
     uartWrite((uint8_t*)&msg, sizeof(McuMessage));
 }
 
-void CommBridge::sendHeartbeat(SystemState estado, uint8_t nivel_pct) {
+void CommBridge::sendHeartbeat(SystemState estado, uint8_t nivel_pct, bool sensor_ok) {
     McuMessage msg;
-    buildMessage(msg, McuEvent::HEARTBEAT, 0xFF, 
-                 (static_cast<uint16_t>(estado) << 8) | nivel_pct);
+    uint16_t payload = (static_cast<uint16_t>(estado) << 8) | (nivel_pct & 0x7F) | (sensor_ok ? 0x80 : 0x00);
+    buildMessage(msg, McuEvent::HEARTBEAT, 0xFF, payload);
     uartWrite((uint8_t*)&msg, sizeof(McuMessage));
 }
 
-void CommBridge::sendNivelUpdate(uint8_t nivel_pct) {
+void CommBridge::sendNivelUpdate(uint8_t nivel_pct, bool sensor_ok) {
     McuMessage msg;
-    buildMessage(msg, McuEvent::NIVEL_UPDATE, 0xFF, nivel_pct);
+    uint16_t payload = (nivel_pct & 0x7F) | (sensor_ok ? 0x80 : 0x00);
+    buildMessage(msg, McuEvent::NIVEL_UPDATE, 0xFF, payload);
     uartWrite((uint8_t*)&msg, sizeof(McuMessage));
 }
 

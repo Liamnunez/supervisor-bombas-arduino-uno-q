@@ -115,6 +115,9 @@ async def heartbeat_task():
 
 def on_status_change(status: SystemStatus):
     """Callback cuando cambia el estado del sistema"""
+    # Evaluar umbrales y generar alertas
+    for alert in alert_manager.check_thresholds(status):
+        alert_manager.add(alert)
     asyncio.create_task(broadcast_status(status))
 
 
