@@ -74,8 +74,7 @@ jobs:
           pip install -r linux/requirements.txt
 
       - name: Run pylint (Linux app)
-        working-directory: ./linux/app
-        run: python -m pylint --errors-only *.py
+        run: python -m pylint --errors-only linux.app
 
       - name: Run cppcheck (MCU firmware)
         working-directory: ./mcu
