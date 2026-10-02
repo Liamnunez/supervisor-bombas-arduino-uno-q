@@ -57,7 +57,7 @@ stateDiagram-v2
 - Contactor pegado: Feedback activo sin orden PLC
 - Sensor nivel fuera de rango (3.5-21mA)
 - Watchdog MCU
-- Comunicación MCU-Linux perdida > 10s
+- Comunicación MCU-Linux perdida \> 10s
 
 **Triggers manuales:**
 

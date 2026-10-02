@@ -20,7 +20,7 @@ cuando hay generador.
 | Cada bomba | ~30 A |
 | Generador de emergencia | ~45 A |
 | **Máximo en GENERADOR** | **1 bomba (30 A)** - 2 bombas = 60 A = apagón |
-| PLC/medidor DSE 7320 | Corta TODO por sobrecarga si ve >45 A |
+| PLC/medidor DSE 7320 | Corta TODO por sobrecarga si ve \>45 A |
 
 El DSE 7320 y el PLC **no se modifican**. El Arduino actúa como capa
 intermedia: en GENERADOR solo permite B1, de modo que el DSE nunca vea el
@@ -74,7 +74,7 @@ Los valores se calibran en sitio con pinza amperométrica
   **ninguna bomba arranca**
 - **PLC ordena arranque pero no hay retorno aux**: Fault → relé abre
   (bloqueo hasta reset de operador)
-- **Sobrecarga del generador (>42 A sostenido)**: EMERGENCIA →
+- **Sobrecarga del generador (\>42 A sostenido)**: EMERGENCIA →
   relés abiertos, requiere reset manual
 - **Comunicación MCU-Linux perdida**: MCU sigue operando en modo autónomo
 - **Reset de emergencia**: comando de operador (también limpia latch de fallos)

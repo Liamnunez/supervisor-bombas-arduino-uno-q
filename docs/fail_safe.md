@@ -23,8 +23,8 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 | **Relé Intermedio B2/B3** | Igual B1 | Igual | B2/B3 | Igual | Igual |
 | **PLC** | Salida pegada HIGH | Relé sigue PLC si permitido | Según modo | Feedback timeout | Reemplazar tarjeta PLC |
 | **PLC** | Sin alimentación | Salidas abiertas | 0/3 | Sin órdenes PLC | Restaurar PLC |
-| **Sensor Nivel** | Cable cortado | N/A (solo telemetría) | N/A | ADC < 600 o > 4000 | Reparar cableado |
-| **Sensor Nivel** | Cortocircuito | N/A | N/A | ADC > 4000 (corriente >21mA) | Reemplazar sensor |
+| **Sensor Nivel** | Cable cortado | N/A (solo telemetría) | N/A | ADC < 600 o \> 4000 | Reparar cableado |
+| **Sensor Nivel** | Cortocircuito | N/A | N/A | ADC \> 4000 (corriente \>21mA) | Reemplazar sensor |
 | **Comunicación MCU-Linux** | Cable UART cortado | MCU autónomo | Normal | Linux: sin heartbeat 10s | Reparar cable |
 | **Linux (QRB2210)** | Caído/Apagado | MCU autónomo | Normal | MCU sigue operando | Reiniciar Linux |
 | **Inversor (Modo HW)** | Contacto intermitente | Cambios modo | Según modo | Debounce 50ms | Verificar inversor |
@@ -63,7 +63,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 ### Capa 3: Supervisión Linux (Monitor)
 
-- Heartbeat cada 1s → Alerta si > 10s sin recibir
+- Heartbeat cada 1s → Alerta si \> 10s sin recibir
 - Verificación coherencia estado
 - Alertas por WebSocket a operadores
 - Logs persistentes para auditoría
@@ -166,7 +166,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 - [ ] Desconectar sensor 4-20mA
 - [ ] Verificar: ADC ~0 → sensor_ok=false → Alerta crítica
-- [ ] Cortocircuitar entrada ADC (simular >20mA)
+- [ ] Cortocircuitar entrada ADC (simular \>20mA)
 - [ ] Verificar: sensor_ok=false → Alerta crítica
 
 ### Test 6: Watchdog
@@ -188,10 +188,10 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 | Métrica | Objetivo de diseño | Nota |
 |---------|--------------------|------|
-| MTBF (Mean Time Between Failures) | > 50,000 horas | Cálculo componentes + test acelerado (pendiente) |
-| MTTR (Mean Time To Recovery) | < 15 min | Procedimientos documentados (pendiente) |
-| Tiempo detección fallo crítico | < 2.1s | Feedback timeout + 1 ciclo |
-| Tiempo reacción emergencia | < 10ms | Loop 10ms + escritura GPIO |
+| MTBF (Mean Time Between Failures) | \> 50,000 horas | Cálculo componentes + test acelerado (pendiente) |
+| MTTR (Mean Time To Recovery) | \< 15 min | Procedimientos documentados (pendiente) |
+| Tiempo detección fallo crítico | \< 2.1s | Feedback timeout + 1 ciclo |
+| Tiempo reacción emergencia | \< 10ms | Loop 10ms + escritura GPIO |
 | Disponibilidad sistema objetivo | 99.9% | Diseño redundante en capas (pendiente validación) |
 
 > **Nota:** No se afirma cumplimiento de SIL, PFD, IEC 61508 ni ninguna norma de seguridad funcional. Estos valores son *objetivos de diseño interno* sin análisis formal de soporte. Cualquier uso en funciones de seguridad requiere evaluación independiente.
@@ -205,7 +205,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 | Relés intermedios | 12 meses | Test continuidad, medir resistencia bobina |
 | Contactores potencia | 12 meses | Inspección visual contactos, medir caída tensión |
 | Sensor nivel | 6 meses | Verificar 4mA/20mA con calibrador |
-| Cableado | 12 meses | Megómetro aislamiento > 1MΩ |
+| Cableado | 12 meses | Megómetro aislamiento \> 1MΩ |
 | MCU (firmware) | 6 meses | Verificar versión, logs errores |
 | Linux (QRB2210) | Mensual | `apt update && apt upgrade`, revisar logs |
 
