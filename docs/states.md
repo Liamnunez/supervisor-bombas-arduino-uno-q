@@ -6,19 +6,19 @@
 stateDiagram-v2
     [*] --> NORMAL: Inicio (Modo RED)
     [*] --> GENERADOR: Inicio (Modo GEN)
-    
+
     NORMAL --> GENERADOR: Modo HW = GEN
     NORMAL --> EMERGENCIA: Fault crítico / Comando
     NORMAL --> MANTENIMIENTO: Comando local/remoto
-    
+
     GENERADOR --> NORMAL: Modo HW = RED
     GENERADOR --> EMERGENCIA: Fault crítico / Comando
     GENERADOR --> MANTENIMIENTO: Comando local/remoto
-    
+
     MANTENIMIENTO --> NORMAL: Comando salir (Modo RED)
     MANTENIMIENTO --> GENERADOR: Comando salir (Modo GEN)
     MANTENIMIENTO --> EMERGENCIA: Fault crítico
-    
+
     EMERGENCIA --> NORMAL: Reset + Modo RED
     EMERGENCIA --> GENERADOR: Reset + Modo GEN
     EMERGENCIA --> MANTENIMIENTO: Comando mantenimiento
@@ -36,19 +36,23 @@ stateDiagram-v2
 ## Transiciones Detalladas
 
 ### NORMAL → GENERADOR
+
 - **Trigger**: Pin PC0 = LOW (contacto seco inversor abierto)
 - **Debounce**: 5 lecturas consistentes @ 100Hz (50ms)
 - **Acción**: Bloquear relés B2, B3 inmediatamente
 - **Notificación**: Evento `MODO_CHANGE` + `STATE_CHANGE`
 
 ### GENERADOR → NORMAL
+
 - **Trigger**: Pin PC0 = HIGH (contacto seco inversor cerrado)
 - **Debounce**: 50ms
 - **Acción**: Restaurar passthrough B2, B3
 - **Notificación**: Evento `MODO_CHANGE` + `STATE_CHANGE`
 
 ### CUALQUIER → EMERGENCIA
+
 **Triggers automáticos:**
+
 - Feedback timeout (2s): PLC ordena pero no hay retorno aux
 - Contactor pegado: Feedback activo sin orden PLC
 - Sensor nivel fuera de rango (3.5-21mA)
@@ -56,28 +60,32 @@ stateDiagram-v2
 - Comunicación MCU-Linux perdida > 10s
 
 **Triggers manuales:**
+
 - Comando `TRIGGER_EMERGENCIA` desde Linux/dashboard
 - Botón físico emergencia (futuro)
 
 **Acción inmediata:**
+
 - Abrir TODOS los relés (B1, B2, B3)
 - Parpadear LED FAULT (200ms)
 - Enviar evento `ERROR` con código
 
 ### CUALQUIER → MANTENIMIENTO
+
 - **Trigger**: Comando `SET_MANTENIMIENTO(activo=true)`
 - **Acción**: Abrir todos los relés
 - **LED OK**: Parpadeo lento (1s)
 - **Salida**: Comando `SET_MANTENIMIENTO(activo=false)` → vuelve a NORMAL/GENERADOR según HW
 
 ### EMERGENCIA → NORMAL/GENERADOR
+
 - **Trigger**: Comando `RESET_EMERGENCIA` (código 0xFFFF)
 - **Condición**: No haber triggers activos
 - **Acción**: Reset contadores fault, transición a estado según modo HW
 
 ## Lógica de Control de Relés (Por Estado)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    FUNCIÓN PUEDE_ARRANCAR(bomba_id)         │
 ├─────────────────────────────────────────────────────────────┤
@@ -102,7 +110,7 @@ stateDiagram-v2
 
 ## Prioridades de Seguridad
 
-```
+```text
 PRIORIDAD 1 (Máxima): EMERGENCIA forzada
     └─ Bloquea todo, ignora modo HW y mantenimiento
 

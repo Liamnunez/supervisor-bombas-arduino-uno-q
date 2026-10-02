@@ -5,6 +5,7 @@
 > **Si cualquier componente falla → NINGUNA BOMBA ARRANCA**
 
 Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
+
 - MCU alimentado + pin HIGH → Relé CERRADO (paso señal)
 - MCU sin alimentación / pin LOW / MCU caído → Relé ABIERTO (bloqueo)
 
@@ -32,6 +33,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 | **Fuente 24VDC** | Caída tensión | Relés abren + MCU off | 0/3 | Todo cae | Restaurar 24V |
 
 * Salvo que el crash deje pines en HIGH (poco probable en STM32)
+
 ** Peligroso: bomba arranca sin orden. Detectado por feedback mismatch → EMERGENCIA
 
 ---
@@ -39,12 +41,14 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Protecciones por Capas
 
 ### Capa 1: Hardware (Inherente)
+
 - Relés NO con muelle → **Fail-safe pasivo**
 - Pull-up en pin modo (PC0) → Si cable cortado = RED (seguro)
 - Pull-down en feedbacks (PC1-3) → Si cable cortado = Bomba parada
 - Watchdog hardware (IWDG) → Reset MCU si firmware cuelga
 
 ### Capa 2: Firmware MCU (Activa)
+
 ```cpp
 // En cada ciclo loop (10ms):
 1. Leer todas las entradas
@@ -58,12 +62,14 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ```
 
 ### Capa 3: Supervisión Linux (Monitor)
+
 - Heartbeat cada 1s → Alerta si > 10s sin recibir
 - Verificación coherencia estado
 - Alertas por WebSocket a operadores
 - Logs persistentes para auditoría
 
 ### Capa 4: Procedimientos Operativos
+
 - Test semanal: simular corte generador
 - Test mensual: desconectar feedback → verificar emergencia
 - Revisión visual relés/contactores trimestral
@@ -73,7 +79,8 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Escenarios Críticos y Respuesta
 
 ### ESCENARIO 1: Generador arranca, PLC intenta arrancar 3 bombas
-```
+
+```text
 1. Inversor abre contacto → MCU detecta GENERADOR (50ms)
 2. Máquina estados: NORMAL → GENERADOR
 3. Relé B1: sigue PLC (paso)
@@ -84,18 +91,21 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ```
 
 ### ESCENARIO 2: Contactor B2 se suelda (contactos pegados)
-```
+
+```text
 1. PLC apaga B2 → Relé B2 abre → Bobina contactor desenergizada
 2. Pero contactos potencia siguen cerrados (soldados)
-2. Feedback B2 (aux NO) = 1 (contacto auxiliar también soldado O circuito separado)
-3. MCU detecta: PLC=0, Feedback=1 → MISMATCH
-4. fault_count++ → EMERGENCIA
-5. TODOS los relés abren → Bomba 1 y 3 paran
-6. Alerta crítica en dashboard
+3. Feedback B2 (aux NO) = 1 (contacto auxiliar también soldado O circuito
+   separado)
+4. MCU detecta: PLC=0, Feedback=1 → MISMATCH
+5. fault_count++ → EMERGENCIA
+6. TODOS los relés abren → Bomba 1 y 3 paran
+7. Alerta crítica en dashboard
 ```
 
 ### ESCENARIO 3: MCU se reinicia (watchdog o power glitch)
-```
+
+```text
 1. MCU boot ~2s
 2. Durante boot: pines en HIGH-Z → Pull-up/pull-down definen estado
    - Relés: pull-down interno o externo → ABIERTOS
@@ -107,7 +117,8 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ```
 
 ### ESCENARIO 4: Cable feedback B1 se corta
-```
+
+```text
 1. Feedback B1 = 0 (pull-down)
 2. PLC ordena B1=1 → Relé cierra → Contactor cierra
 3. Feedback sigue en 0 (cable cortado)
@@ -122,12 +133,14 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Verificación de Fail-Safe (Checklist Puesta en Marcha)
 
 ### Test 1: Fallo Alimentación MCU
+
 - [ ] Desconectar 24V del Arduino UNO Q
 - [ ] Verificar: 3 relés abiertos (medir continuidad contactos)
 - [ ] Verificar: 3 contactores abiertos (bombas paradas)
 - [ ] Reconectar → Verificar arranque seguro
 
 ### Test 2: Modo Generador
+
 - [ ] Simular contacto inversor ABIERTO (GEN)
 - [ ] PLC ordena 3 bombas
 - [ ] Verificar: Solo relé B1 cierra, B2/B3 abiertos
@@ -135,6 +148,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 - [ ] Restaurar contacto RED → Verificar 3 bombas
 
 ### Test 3: Feedback Timeout
+
 - [ ] Desconectar feedback B1
 - [ ] PLC ordena B1
 - [ ] Esperar 2.5s
@@ -143,22 +157,26 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 - [ ] Reset emergencia → Verificar recuperación
 
 ### Test 4: Mismatch (Contactor Pegado)
+
 - [ ] Simular feedback B1=1 sin orden PLC (puente temporal)
 - [ ] Verificar: Mismatch detectado → fault_count++
 - [ ] Verificar: EMERGENCIA tras umbral
 
 ### Test 5: Sensor Nivel
+
 - [ ] Desconectar sensor 4-20mA
 - [ ] Verificar: ADC ~0 → sensor_ok=false → Alerta crítica
 - [ ] Cortocircuitar entrada ADC (simular >20mA)
 - [ ] Verificar: sensor_ok=false → Alerta crítica
 
 ### Test 6: Watchdog
+
 - [ ] Inyectar bucle infinito en firmware (test only)
 - [ ] Verificar: Reset por IWDG a los 5s
 - [ ] Verificar: Relés abren durante reset
 
 ### Test 7: Comunicación MCU-Linux
+
 - [ ] Desconectar USB/UART
 - [ ] Verificar: MCU sigue operando (LEDs, relés)
 - [ ] Verificar: Linux alerta "Sin heartbeat"
@@ -195,7 +213,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 ## Conclusión
 
-La arquitectura **en serie con relés NO** garantiza que **cualquier fallo individual** (MCU, relé, cable, alimentación, software) resulta en **estado seguro: bombas paradas**. 
+La arquitectura **en serie con relés NO** garantiza que **cualquier fallo individual** (MCU, relé, cable, alimentación, software) resulta en **estado seguro: bombas paradas**.
 
 El único modo de fallo peligroso (contactos relé/contacto soldados) es **detectado activamente** por la comparación PLC vs Feedback, disparando EMERGENCIA global.
 

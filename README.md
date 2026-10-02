@@ -1,6 +1,8 @@
 # Supervisor de Bombas - Arduino UNO Q
 
-Sistema de supervisión para 3 bombas de agua (7.5 kW c/u) que intercepta las salidas de un PLC no reprogramable para limitar el arranque a 1 sola bomba cuando hay generador.
+Sistema de supervisión para 3 bombas de agua (7.5 kW c/u) que intercepta las
+salidas de un PLC no reprogramable para limitar el arranque a 1 sola bomba
+cuando hay generador.
 
 ## Resumen de Funcionamiento
 
@@ -38,39 +40,42 @@ Los valores se calibran en sitio con pinza amperométrica
 
 ## Arquitectura
 
-```
+```text
 ┌─────────────────┐     24VDC contacto seco      ┌──────────────────┐
 │      PLC        │ ───────────────────────────▶ │   Arduino UNO Q  │
 │  (no tocable)   │                              │  (STM32U585 MCU) │
 └─────────────────┘                              │  3 Relés en serie│
                                                  └────────┬─────────┘
                                                           │
-                    ┌────────────────────────────────────┼────────────────┐
-                    ▼                                    ▼                ▼
-              ┌──────────┐                         ┌──────────┐      ┌──────────┐
-              │ Contac.  │                         │ Contac.  │      │ Contac.  │
-              │   B1     │                         │   B2     │      │   B3     │
-              └──────────┘                         └──────────┘      └──────────┘
-                   │                                    │                 │
-                   ▼                                    ▼                 ▼
-              ┌──────────┐                         ┌──────────┐      ┌──────────┐
-              │  Bomba 1 │                         │  Bomba 2 │      │  Bomba 3 │
-              │  7.5 kW  │                         │  7.5 kW  │      │  7.5 kW  │
-              └──────────┘                         └──────────┘      └──────────┘
+                     ┌────────────────────────────────────┼────────────────┐
+                     ▼                                    ▼                ▼
+               ┌──────────┐                         ┌──────────┐      ┌──────────┐
+               │ Contac.  │                         │ Contac.  │      │ Contac.  │
+               │   B1     │                         │   B2     │      │   B3     │
+               └──────────┘                         └──────────┘      └──────────┘
+                    │                                    │                 │
+                    ▼                                    ▼                 ▼
+               ┌──────────┐                         ┌──────────┐      ┌──────────┐
+               │  Bomba 1 │                         │  Bomba 2 │      │  Bomba 3 │
+               │  7.5 kW  │                         │  7.5 kW  │      │  7.5 kW  │
+               └──────────┘                         └──────────┘      └──────────┘
                     ▲                                    ▲                 ▲
                     │                                    │                 │
-              Retorno aux (NO/NC)                 Retorno aux        Retorno aux
+               Retorno aux (NO/NC)                 Retorno aux        Retorno aux
                     │                                    │                 │
                     └────────────────────────────────────┼─────────────────┘
                                                          ▼
-                                                Entradas digitales MCU
+                                                 Entradas digitales MCU
 ```
 
 ## Fail-Safe
 
-- **Arduino sin alimentación / MCU caído**: Relés abren por muelle → **ninguna bomba arranca**
-- **PLC ordena arranque pero no hay retorno aux**: Fault → relé abre (bloqueo hasta reset de operador)
-- **Sobrecarga del generador (>42 A sostenido)**: EMERGENCIA → relés abiertos, requiere reset manual
+- **Arduino sin alimentación / MCU caído**: Relés abren por muelle →
+  **ninguna bomba arranca**
+- **PLC ordena arranque pero no hay retorno aux**: Fault → relé abre
+  (bloqueo hasta reset de operador)
+- **Sobrecarga del generador (>42 A sostenido)**: EMERGENCIA →
+  relés abiertos, requiere reset manual
 - **Comunicación MCU-Linux perdida**: MCU sigue operando en modo autónomo
 - **Reset de emergencia**: comando de operador (también limpia latch de fallos)
 
@@ -84,7 +89,7 @@ caro y no debe bloquearse). El Arduino usa sus propias señales:
 | Corriente generador | **CT propio** (pinza, no invasivo) → `PIN_CORRIENTE_ADC` |
 | Modo RED/GENERADOR | Contacto seco inversor (paralelo, no serie) → `PIN_MODO_GEN` |
 | Orden PLC por bomba | Contacto seco de salida PLC → `PIN_PLC_BOMBAx` |
-| Retorno aux contactores | NO auxiliar de cada contactor → `PIN_FEEDBACx` |
+| Retorno aux contactores | NO auxiliar de cada contactor → `PIN_FEEDBACKx` |
 
 ## Acceso Remoto (roles)
 
@@ -93,16 +98,18 @@ caro y no debe bloquearse). El Arduino usa sus propias señales:
 | **operator** | `SUPERVISOR_OPERATOR_PASSWORD` | `reset_emergencia`, `set_mantenimiento`, `request_status` |
 | **admin** | `SUPERVISOR_ADMIN_PASSWORD` | todo lo anterior + `set_modo_generador`, `trigger_emergencia` |
 
-- **Fail-closed**: sin contraseñas definidas, **ningún** comando remoto se acepta (solo lectura).
+- **Fail-closed**: sin contraseñas definidas, **ningún** comando remoto se
+  acepta (solo lectura).
 - Tokens HMAC con expiración (8 h por defecto) vía `POST /api/auth/login`.
-- **Audit log** (JSONL): cada intento, permitido o denegado, con rol y timestamp.
+- **Audit log** (JSONL): cada intento, permitido o denegado, con rol y
+  timestamp.
 - El límite de **1 bomba en GENERADOR es regla fija de firmware**: no existe
   comando remoto (ni admin) que lo sobreescriba.
 - Configurar en `linux/systemd/telemetry.service` o por entorno.
 
 ## Telemetría Sin Pérdidas
 
-- Alertas persistidas en **SQLite local** (`SUPVISOR_ALERTS_DB`) → no se
+- Alertas persistidas en **SQLite local** (`SUPERVISOR_ALERTS_DB`) → no se
   pierden datos si cae la red o hay tormentas.
 - **Deduplicación** de alertas (60 s) → no satura al personal ni el canal.
 - **Cola de entrega pendiente** (store-and-forward): las alertas se marcan
@@ -121,7 +128,7 @@ caro y no debe bloquearse). El Arduino usa sus propias señales:
 
 ## Estructura del Proyecto
 
-```
+```text
 /home/administrador/opencode-test
 ├── README.md
 ├── Makefile
@@ -152,6 +159,7 @@ caro y no debe bloquearse). El Arduino usa sus propias señales:
 ## Desarrollo
 
 ### MCU (STM32U585)
+
 ```bash
 cd mcu
 pio run -t upload    # Compila y flashea
@@ -159,6 +167,7 @@ pio device monitor   # Serial monitor
 ```
 
 ### Linux Side (QRB2210)
+
 ```bash
 cd linux
 python -m venv venv
@@ -168,6 +177,7 @@ python -m app.main             # FastAPI en :8080
 ```
 
 Variables de entorno (recomendado en producción, ver systemd):
+
 ```bash
 export SUPERVISOR_OPERATOR_PASSWORD=...   # rol operator (reset/mantenimiento)
 export SUPERVISOR_ADMIN_PASSWORD=...      # rol admin (todo)
@@ -175,6 +185,7 @@ export SUPERVISOR_AUTH_SECRET=...         # firma de tokens
 ```
 
 ### Tests
+
 ```bash
 make tests           # Python (pytest) + nativos (g++ - lógica real del MCU)
 make tests-py        # solo pytest
