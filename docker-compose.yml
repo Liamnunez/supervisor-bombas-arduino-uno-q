@@ -1,0 +1,86 @@
+# ============================================================
+# docker-compose.yml - Supervisor de Bombas Telemetry Stack
+# ============================================================
+# Usage:
+#   docker compose up -d          # production
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d  # development
+# ============================================================
+
+version: "3.9"
+
+services:
+  # ----------------------------------------------------------
+  # Telemetry API (FastAPI + WebSocket)
+  # ----------------------------------------------------------
+  telemetry:
+    build:
+      context: .
+      dockerfile: linux/Dockerfile
+    container_name: supervisor-telemetry
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Serial port for MCU (adjust for your hardware)
+      - SUPERVISOR_SERIAL_PORT=/dev/ttyACM0
+      # Database paths (persisted in volumes)
+      - SUPERVISOR_ALERTS_DB=/data/alerts.db
+      - SUPERVISOR_AUDIT_LOG=/data/audit.log
+      - SUPERVISOR_MAINTENANCE_DB=/data/maintenance.db
+      - SUPERVISOR_METRICS_DB=/data/metrics.db
+      # Auth (REQUIRED for remote commands - fail-closed if missing)
+      - SUPERVISOR_OPERATOR_PASSWORD=${SUPERVISOR_OPERATOR_PASSWORD}
+      - SUPERVISOR_ADMIN_PASSWORD=${SUPERVISOR_ADMIN_PASSWORD}
+      - SUPERVISOR_AUTH_SECRET=${SUPERVISOR_AUTH_SECRET}
+      - SUPERVISOR_TOKEN_TTL_S=28800
+      # Telegram Bot (optional)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      # Maintenance thresholds
+      - MAINT_OIL_HOURS=500
+      - MAINT_BEARING_HOURS=2000
+    volumes:
+      - telemetry-data:/data
+      # Serial device passthrough (adjust for your system)
+      - /dev/ttyACM0:/dev/ttyACM0
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ----------------------------------------------------------
+  # Optional: PostgreSQL for centralized alert/metrics storage
+  # (uncomment and configure if needed)
+  # ----------------------------------------------------------
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: supervisor-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: supervisor
+  #     POSTGRES_USER: supervisor
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U supervisor"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+volumes:
+  telemetry-data:
+    driver: local
+
+# networks:
+#   default:
+#     name: supervisor-network

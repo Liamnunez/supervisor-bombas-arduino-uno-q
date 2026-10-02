@@ -1,0 +1,36 @@
+# ============================================================
+# docker-compose.dev.yml - Development overrides
+# ============================================================
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# ============================================================
+
+version: "3.9"
+
+services:
+  telemetry:
+    build:
+      context: .
+      dockerfile: linux/Dockerfile
+    volumes:
+      # Live reload: mount source code
+      - ./linux/app:/app/app
+      - ./linux/static:/app/static
+    environment:
+      # Disable auth for local dev (optional)
+      - SUPERVISOR_OPERATOR_PASSWORD=devop
+      - SUPERVISOR_ADMIN_PASSWORD=devadmin
+      - SUPERVISOR_AUTH_SECRET=devsecretdevsecretdevsecret
+    command: python -m app.main
+    # Disable healthcheck in dev (faster startup)
+    healthcheck:
+      disable: true
+    # Run as root in dev for easier debugging
+    user: root
+
+  # Optional: MQTT broker for testing
+  # mqtt:
+  #   image: eclipse-mosquitto:2
+  #   ports:
+  #     - "1883:1883"
+  #     - "9001:9001"
