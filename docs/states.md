@@ -27,11 +27,11 @@ stateDiagram-v2
 ## Tabla de Estados
 
 | Estado | Bombas Permitidas | Relés | LEDs | Descripción |
-| --- | --- | --- | --- | --- |
-| **NORMAL** | 3 (B1, B2, B3) | Passthrough PLC | 🟢 OK | Modo RED - Funcionamiento normal |
-| **GENERADOR** | 1 (solo B1) | B1=PLC, B2/B3=Abiertos | 🟡 GEN | Generador activo - Solo bomba prioritaria |
-| **EMERGENCIA** | 0 | Todos abiertos | 🔴 FAULT (parpadeo) | Fallo crítico - Bloqueo total |
-| **MANTENIMIENTO** | 0 | Todos abiertos | 🔵 OK (parpadeo lento) | Modo local - Bloqueo intencional |
+| -------- | ------------------- | ------- | ------ | ------------- |  |
+|**NORMAL**| 3 (B1, B2, B3) | Passthrough PLC | 🟢 OK | Modo RED - Funcionamiento normal |
+|**GENERADOR**| 1 (solo B1) | B1=PLC, B2/B3=Abiertos | 🟡 GEN | Generador activo - Solo bomba prioritaria |
+|**EMERGENCIA**| 0 | Todos abiertos | 🔴 FAULT (parpadeo) | Fallo crítico - Bloqueo total |
+|**MANTENIMIENTO**| 0 | Todos abiertos | 🔵 OK (parpadeo lento) | Modo local - Bloqueo intencional |
 
 ## Transiciones Detalladas
 
@@ -75,8 +75,7 @@ stateDiagram-v2
 - **Trigger**: Comando `SET_MANTENIMIENTO(activo=true)`
 - **Acción**: Abrir todos los relés
 - **LED OK**: Parpadeo lento (1s)
-- **Salida**: Comando `SET_MANTENIMIENTO(activo=false)` → vuelve a
-  NORMAL/GENERADOR según HW
+- **Salida**: Comando `SET_MANTENIMIENTO(activo=false)` → vuelve a NORMAL/GENERADOR según HW
 
 ### EMERGENCIA → NORMAL/GENERADOR
 
@@ -130,31 +129,31 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Eventos Generados (MCU → Linux)
 
 | Evento | Código | Payload | Descripción |
-| --- | --- | --- | --- |
-| STATE_CHANGE | 0x10 | (ant<<8)\|nuevo | Cambio de estado principal |
+| -------- | -------- | --------- | ------------- |  |
+| STATE_CHANGE | 0x10 | (ant<<8)\ | nuevo | Cambio de estado principal |
 | BOMBA_START | 0x20 | - | Feedback confirma arranque |
 | BOMBA_STOP | 0x21 | - | Feedback confirma parada |
 | BOMBA_FAULT | 0x22 | - | Timeout feedback / mismatch |
 | FEEDBACK_MISMATCH | 0x23 | - | PLC ≠ Feedback |
 | NIVEL_UPDATE | 0x30 | % nivel | Actualización nivel agua |
 | MODO_CHANGE | 0x40 | 0/1 | Cambio RED/GEN detectado |
-| HEARTBEAT | 0x50 | (estado<<8)\|nivel | Latido periódico (1s) |
+| HEARTBEAT | 0x50 | (estado<<8)\ | nivel | Latido periódico (1s) |
 | ERROR | 0xFF | código | Error crítico |
 
 ## Comandos Recibidos (Linux → MCU)
 
 | Comando | Código | Parámetros | Descripción |
-| --- | --- | --- | --- |
-| SET_MODO_GENERADOR | 0x01 | bool | Forzar modo (override HW) |
-| SET_MANTENIMIENTO | 0x02 | bool | Activar/desactivar mantenimiento |
-| TRIGGER_EMERGENCIA | 0x03 | uint16 código | Forzar emergencia |
-| RESET_EMERGENCIA | 0x04 | 0xFFFF | Reset emergencia |
+| --------- | -------- | ------------ | ------------- |  |
+| SET_MODO_GENERADOR | 0x40 (MODO_CHANGE) | bit 0: 1=GEN, 0=RED | Forzar modo (override HW) |
+| SET_MANTENIMIENTO | 0x10 (STATE_CHANGE) | payload = (0<<8)\ | 3 (MANTENIMIENTO) | Activar/desactivar mantenimiento |
+| TRIGGER_EMERGENCIA | 0x10 (STATE_CHANGE) | payload = (codigo<<8)\ | 2 (EMERGENCIA) | Forzar emergencia |
+| RESET_EMERGENCIA | 0xFF (ERROR) | payload = 0xFFFF | Reset emergencia + latch fallos |
 | REQUEST_STATUS | 0x10 | - | Solicitar estado completo |
 
 ## Tiempos Críticos
 
 | Parámetro | Valor | Configurable |
-| --- | --- | --- |
+| ----------- | ------- | -------------- |  |
 | Loop principal | 10ms (100Hz) | No |
 | Debounce entradas digitales | 50ms | `DEBOUNCE_MS` |
 | Feedback timeout | 2000ms | `FEEDBACK_TIMEOUT_MS` |
@@ -167,7 +166,7 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Códigos de Error (Emergencia)
 
 | Código | Descripción |
-| --- | --- |
+| -------- | ------------- |  |
 | 0x0001 | Feedback timeout Bomba 1 |
 | 0x0002 | Feedback timeout Bomba 2 |
 | 0x0003 | Feedback timeout Bomba 3 |
@@ -180,3 +179,5 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 | 0x0800 | Comunicación MCU-Linux perdida |
 | 0x1000 | Comando emergencia remota |
 | 0x8000 | Múltiples fallos simultáneos |
+
+

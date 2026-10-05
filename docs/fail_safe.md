@@ -14,23 +14,23 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Matriz de Fallos
 
 | Componente | Modo Fallo | Efecto en Relés | Bombas | Detectado por | Recuperación |
-| --- | --- | --- | --- | --- | --- |
-| **MCU (STM32U585)** | Sin alimentación | Abren (muelle) | 0/3 | Hardware | Restaurar alimentación |
-| **MCU** | Firmware crashea | Abren (pin LOW por defecto) | 0/3 | Watchdog interno + Linux | Reinicio MCU |
-| **MCU** | Loop bloqueado | Mantienen último estado* | Variable | Watchdog HW (IWDG 5s) | Reset por IWDG |
-| **Relé Intermedio B1** | Bobina abierta | Abre (muelle) | B1: 0 | Feedback mismatch | Reemplazar relé |
-| **Relé Intermedio B1** | Contacto soldado | Cerrado permanente | B1: 1** | Feedback mismatch (PLC=0, FB=1) | Reemplazar relé |
-| **Relé Intermedio B2/B3** | Igual B1 | Igual | B2/B3 | Igual | Igual |
-| **PLC** | Salida pegada HIGH | Relé sigue PLC si permitido | Según modo | Feedback timeout | Reemplazar tarjeta PLC |
-| **PLC** | Sin alimentación | Salidas abiertas | 0/3 | Sin órdenes PLC | Restaurar PLC |
-| **Sensor Nivel** | Cable cortado | N/A (solo telemetría) | N/A | ADC < 600 o \> 4000 | Reparar cableado |
-| **Sensor Nivel** | Cortocircuito | N/A | N/A | ADC \> 4000 (corriente \>21mA) | Reemplazar sensor |
-| **Comunicación MCU-Linux** | Cable UART cortado | MCU autónomo | Normal | Linux: sin heartbeat 10s | Reparar cable |
-| **Linux (QRB2210)** | Caído/Apagado | MCU autónomo | Normal | MCU sigue operando | Reiniciar Linux |
-| **Inversor (Modo HW)** | Contacto intermitente | Cambios modo | Según modo | Debounce 50ms | Verificar inversor |
-| **Contactor B1** | Bobina quemada | No cierra | B1: 0 | Feedback timeout 2s | Reemplazar contactor |
-| **Contactor B1** | Contactos soldados | Siempre cerrado | B1: 1** | Feedback mismatch | Reemplazar contactor |
-| **Fuente 24VDC** | Caída tensión | Relés abren + MCU off | 0/3 | Todo cae | Restaurar 24V |
+| --- | --- | --- | --- | --- | --- |  |
+|**MCU (STM32U585)**| Sin alimentación | Abren (muelle) | 0/3 | Hardware | Restaurar alimentación |
+|**MCU**| Firmware crashea | Abren (pin LOW por defecto) | 0/3 | Watchdog interno + Linux | Reinicio MCU |
+|**MCU**| Loop bloqueado | Mantienen último estado* | Variable | Watchdog HW (IWDG 5s) | Reset por IWDG |
+|**Relé Intermedio B1**| Bobina abierta | Abre (muelle) | B1: 0 | Feedback mismatch | Reemplazar relé |
+|**Relé Intermedio B1**| Contacto soldado | Cerrado permanente | B1: 1**| Feedback mismatch (PLC=0, FB=1) | Reemplazar relé |
+|**Relé Intermedio B2/B3**| Igual B1 | Igual | B2/B3 | Igual | Igual |
+|**PLC**| Salida pegada HIGH | Relé sigue PLC si permitido | Según modo | Feedback timeout | Reemplazar tarjeta PLC |
+|**PLC**| Sin alimentación | Salidas abiertas | 0/3 | Sin órdenes PLC | Restaurar PLC |
+|**Sensor Nivel**| Cable cortado | N/A (solo telemetría) | N/A | ADC < 600 o \> 4000 | Reparar cableado |
+|**Sensor Nivel**| Cortocircuito | N/A | N/A | ADC \> 4000 (corriente \>21mA) | Reemplazar sensor |
+|**Comunicación MCU-Linux**| Cable UART cortado | MCU autónomo | Normal | Linux: sin heartbeat 10s | Reparar cable |
+|**Linux (QRB2210)**| Caído/Apagado | MCU autónomo | Normal | MCU sigue operando | Reiniciar Linux |
+|**Inversor (Modo HW)**| Contacto intermitente | Cambios modo | Según modo | Debounce 50ms | Verificar inversor |
+|**Contactor B1**| Bobina quemada | No cierra | B1: 0 | Feedback timeout 2s | Reemplazar contactor |
+|**Contactor B1**| Contactos soldados | Siempre cerrado | B1: 1**| Feedback mismatch | Reemplazar contactor |
+|**Fuente 24VDC**| Caída tensión | Relés abren + MCU off | 0/3 | Todo cae | Restaurar 24V |
 
 - Salvo que el crash deje pines en HIGH (poco probable en STM32)
 
@@ -188,7 +188,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Métricas de Confiabilidad Objetivo (informativas, sin análisis formal)
 
 | Métrica | Objetivo de diseño | Nota |
-| --- | --- | --- |
+| --- | --- | --- |  |
 | MTBF (Mean Time Between Failures) | \> 50,000 horas | Cálculo componentes + test acelerado (pendiente) |
 | MTTR (Mean Time To Recovery) | \< 15 min | Procedimientos documentados (pendiente) |
 | Tiempo detección fallo crítico | \< 2.1s | Feedback timeout + 1 ciclo |
@@ -205,7 +205,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Mantenimiento Predictivo
 
 | Componente | Intervalo | Acción |
-| --- | --- | --- |
+| --- | --- | --- |  |
 | Relés intermedios | 12 meses | Test continuidad, medir resistencia bobina |
 | Contactores potencia | 12 meses | Inspección visual contactos, medir caída tensión |
 | Sensor nivel | 6 meses | Verificar 4mA/20mA con calibrador |
@@ -228,3 +228,5 @@ EMERGENCIA global.
 **Nivel de seguridad: Concepto/prototipo sin evaluación formal de integridad de
 seguridad. No apto para funciones de seguridad certificadas sin análisis
 independiente.**
+
+

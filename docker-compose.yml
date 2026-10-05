@@ -21,8 +21,8 @@ services:
     ports:
       - "8080:8080"
     environment:
-      # Serial port for MCU (adjust for your hardware)
-      - SUPERVISOR_SERIAL_PORT=/dev/ttyACM0
+      # Serial port for MCU (hardcoded in app.main() -> /dev/ttyACM0)
+      # SUPERVISOR_SERIAL_PORT=/dev/ttyACM0
       # Database paths (persisted in volumes)
       - SUPERVISOR_ALERTS_DB=/data/alerts.db
       - SUPERVISOR_AUDIT_LOG=/data/audit.log

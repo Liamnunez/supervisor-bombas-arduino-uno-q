@@ -141,10 +141,3 @@ class Alert:
         }
 
 
-# Comandos hacia MCU
-class McuCommand(IntEnum):
-    SET_MODO_GENERADOR = 0x01
-    SET_MANTENIMIENTO = 0x02
-    TRIGGER_EMERGENCIA = 0x03
-    RESET_EMERGENCIA = 0x04
-    REQUEST_STATUS = 0x10
