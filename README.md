@@ -7,7 +7,7 @@ cuando hay generador.
 ## Resumen de Funcionamiento
 
 | Modo | Bombas Permitidas | Comportamiento |
-|------|-------------------|----------------|
+| --- | --- | --- |
 | **RED** | 3 (B1, B2, B3) | Passthrough total - relés cerrados |
 | **GENERADOR** | 1 (solo B1) | Bloquea B2 y B3, permite solo B1 |
 | **EMERGENCIA** | 0 | Todos los relés abiertos |
@@ -16,7 +16,7 @@ cuando hay generador.
 ## Presupuesto Eléctrico (por qué existe este sistema)
 
 | Concepto | Valor |
-|----------|-------|
+| --- | --- |
 | Cada bomba | ~30 A |
 | Generador de emergencia | ~45 A |
 | **Máximo en GENERADOR** | **1 bomba (30 A)** - 2 bombas = 60 A = apagón |
@@ -29,7 +29,7 @@ salida del generador, sin tocar los sensores del DSE) vigila la corriente y
 actúa **antes** que la protección del DSE:
 
 | Señal | Umbral | Acción |
-|-------|--------|--------|
+| --- | --- | --- |
 | Aviso | ≥40 A durante 1 s | Alerta a personal |
 | Trip | ≥42 A durante 3 s (time-overcurrent, tolera inrush ~2 s) | EMERGENCIA: relés abiertos, requiere reset de operador |
 | Contactor pegado | ≥2 A con relés abiertos durante 1 s | Alerta de contactor soldado |
@@ -85,7 +85,7 @@ Los sensores conectados al DSE 7320 **no se modifican** (el equipo es
 caro y no debe bloquearse). El Arduino usa sus propias señales:
 
 | Señal | Fuente |
-|-------|--------|
+| --- | --- |
 | Corriente generador | **CT propio** (pinza, no invasivo) → `PIN_CORRIENTE_ADC` |
 | Modo RED/GENERADOR | Contacto seco inversor (paralelo, no serie) → `PIN_MODO_GEN` |
 | Orden PLC por bomba | Contacto seco de salida PLC → `PIN_PLC_BOMBAx` |
@@ -94,7 +94,7 @@ caro y no debe bloquearse). El Arduino usa sus propias señales:
 ## Acceso Remoto (roles)
 
 | Rol | Contraseña | Comandos permitidos |
-|-----|-----------|---------------------|
+| --- | --- | --- |
 | **operator** | `SUPERVISOR_OPERATOR_PASSWORD` | `reset_emergencia`, `set_mantenimiento`, `request_status` |
 | **admin** | `SUPERVISOR_ADMIN_PASSWORD` | todo lo anterior + `set_modo_generador`, `trigger_emergencia` |
 

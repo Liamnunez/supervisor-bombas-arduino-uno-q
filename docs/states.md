@@ -27,7 +27,7 @@ stateDiagram-v2
 ## Tabla de Estados
 
 | Estado | Bombas Permitidas | Relés | LEDs | Descripción |
-|--------|-------------------|-------|------|-------------|
+| --- | --- | --- | --- | --- |
 | **NORMAL** | 3 (B1, B2, B3) | Passthrough PLC | 🟢 OK | Modo RED - Funcionamiento normal |
 | **GENERADOR** | 1 (solo B1) | B1=PLC, B2/B3=Abiertos | 🟡 GEN | Generador activo - Solo bomba prioritaria |
 | **EMERGENCIA** | 0 | Todos abiertos | 🔴 FAULT (parpadeo) | Fallo crítico - Bloqueo total |
@@ -75,7 +75,8 @@ stateDiagram-v2
 - **Trigger**: Comando `SET_MANTENIMIENTO(activo=true)`
 - **Acción**: Abrir todos los relés
 - **LED OK**: Parpadeo lento (1s)
-- **Salida**: Comando `SET_MANTENIMIENTO(activo=false)` → vuelve a NORMAL/GENERADOR según HW
+- **Salida**: Comando `SET_MANTENIMIENTO(activo=false)` → vuelve a
+  NORMAL/GENERADOR según HW
 
 ### EMERGENCIA → NORMAL/GENERADOR
 
@@ -129,7 +130,7 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Eventos Generados (MCU → Linux)
 
 | Evento | Código | Payload | Descripción |
-|--------|--------|---------|-------------|
+| --- | --- | --- | --- |
 | STATE_CHANGE | 0x10 | (ant<<8)\|nuevo | Cambio de estado principal |
 | BOMBA_START | 0x20 | - | Feedback confirma arranque |
 | BOMBA_STOP | 0x21 | - | Feedback confirma parada |
@@ -143,7 +144,7 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Comandos Recibidos (Linux → MCU)
 
 | Comando | Código | Parámetros | Descripción |
-|---------|--------|------------|-------------|
+| --- | --- | --- | --- |
 | SET_MODO_GENERADOR | 0x01 | bool | Forzar modo (override HW) |
 | SET_MANTENIMIENTO | 0x02 | bool | Activar/desactivar mantenimiento |
 | TRIGGER_EMERGENCIA | 0x03 | uint16 código | Forzar emergencia |
@@ -153,7 +154,7 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Tiempos Críticos
 
 | Parámetro | Valor | Configurable |
-|-----------|-------|--------------|
+| --- | --- | --- |
 | Loop principal | 10ms (100Hz) | No |
 | Debounce entradas digitales | 50ms | `DEBOUNCE_MS` |
 | Feedback timeout | 2000ms | `FEEDBACK_TIMEOUT_MS` |
@@ -166,7 +167,7 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 ## Códigos de Error (Emergencia)
 
 | Código | Descripción |
-|--------|-------------|
+| --- | --- |
 | 0x0001 | Feedback timeout Bomba 1 |
 | 0x0002 | Feedback timeout Bomba 2 |
 | 0x0003 | Feedback timeout Bomba 3 |

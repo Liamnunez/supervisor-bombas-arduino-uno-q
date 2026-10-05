@@ -1,4 +1,5 @@
 # Protocolos de Seguridad - Supervisor de Bombas
+
 ## Versión 1.0 - Documento Vivo (Actualizable)
 
 ---
@@ -6,7 +7,7 @@
 ## 1. Alcance y Definiciones
 
 | Término | Definición |
-|---------|------------|
+| --- | --- |
 | **SIS** | Safety Instrumented System - Sistema Instrumentado de Seguridad |
 | **SIL** | Safety Integrity Level (1-4, IEC 61508) |
 | **SIF** | Safety Instrumented Function - Función Instrumentada de Seguridad |
@@ -23,20 +24,21 @@
 ## 2. Matriz de Funciones de Seguridad (SIF)
 
 | SIF | Descripción | Trigger | Acción | SIL Target | Proof Test |
-|-----|-------------|---------|--------|------------|------------|
+| --- | --- | --- | --- | --- | --- |
 | **SIF-01** | Limitar bombas en GEN | Modo HW = GEN + PLC ordena B2/B3 | Bloquear relés B2/B3 | SIL 1 | Anual |
 | **SIF-02** | Feedback timeout | PLC=ON, FB=OFF > 2s | Abrir relé, fault_count++ | SIL 1 | Semestral |
 | **SIF-03** | Contactor soldado | PLC=OFF, FB=ON > 2s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-04** | Sobrecorriente gen | I > 42A > 3s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-05** | Nivel sensor fail | ADC < 3.5mA o > 21mA | Alerta + safe state | SIL 1 | Anual |
 
-> **Nota:** SIL 1 target para pilotaje. Revisar a SIL 2 tras análisis de riesgo (HAZOP).
+> **Nota:** SIL 1 target para pilotaje. Revisar a SIL 2 tras análisis de riesgo
+> (HAZOP).
 
 ---
 
 ## 3. Arquitectura de Seguridad (Capas)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │ CAPA 4: Procedimientos Operativos                           │
 │  - Checklist puesta en marcha (fail_safe.md)                │
@@ -67,7 +69,7 @@
 ## 4. Matriz de Acceso y Comandos (RBAC)
 
 | Acción | Local (Físico) | Remoto (Operator) | Remoto (Admin) | Notas |
-|--------|----------------|-------------------|----------------|-------|
+| --- | --- | --- | --- | --- |
 | Ver estado/alertas | ✅ | ✅ | ✅ | Solo lectura |
 | Consultar histórico/CSV | ✅ | ✅ | ✅ | Export CSV |
 | Ver métricas/gráficas | ✅ | ✅ | ✅ | Dashboard |
@@ -78,14 +80,15 @@
 | Desactivar protecciones | ❌ | ❌ | ❌ | **NUNCA** |
 | Cambiar firmware | ❌ (JTAG) | ❌ | ❌ (OTA firmado) | Solo mantenimiento |
 
-> **Regla de oro:** El límite de 1 bomba en GENERADOR es **regla de firmware inmutable**. No existe comando remoto ni local que lo sobrescriba.
+> **Regla de oro:** El límite de 1 bomba en GENERADOR es **regla de firmware
+> inmutable**. No existe comando remoto ni local que lo sobrescriba.
 
 ---
 
 ## 4. Matriz de Acceso Remoto (Ciberseguridad)
 
 | Capa | Piloto (3 meses) | Producción |
-|------|------------------|------------|
+| --- | --- | --- |
 | **Autenticación** | HMAC token (8h) | mTLS + certificado dispositivo |
 | **Transporte** | HTTPS/WSS | VPN (WireGuard) + mTLS |
 | **Red** | Firewall + allowlist IP | OT VLAN segregada, deny-by-default |
@@ -99,7 +102,7 @@
 ## 5. Pruebas de Validación (Proof Tests)
 
 | Test | Frecuencia | Método | Criterio Aceptación | Responsable |
-|------|------------|--------|---------------------|-------------|
+| --- | --- | --- | --- | --- |
 | **PT-01** Alimentación MCU | Semestral | Desconectar 24V | 3 relés abiertos < 100ms | Operador |
 | **PT-02** Modo Generador | Semestral | Simular GEN + orden 3 bombas | Solo B1 cierra, B2/B3 abiertos | Operador |
 | **PT-03** Feedback timeout | Semestral | Desconectar FB + orden PLC | EMERGENCIA < 2.5s | Operador |
@@ -116,7 +119,7 @@
 ## 6. Registro de Cambios (Changelog)
 
 | Versión | Fecha | Autor | Cambios | Aprobado |
-|---------|-------|-------|---------|----------|
+| --- | --- | --- | --- | --- |
 | 1.0 | 2026-10-02 | [Autor] | Creación inicial - Fases 1-4 | Pendiente |
 | 1.1 | TBD | - | Añadir HAZOP/LOPA resultados | - |
 | 1.2 | TBD | - | SIL 2 upgrade (si aplica) | - |
@@ -133,4 +136,5 @@
 
 ---
 
-*Fin de Fase 1 - Base documental estable. Siguiente: Fase 2 (HAZOP/LOPA) cuando haya tiempo.*
+*Fin de Fase 1 - Base documental estable. Siguiente: Fase 2 (HAZOP/LOPA) cuando
+haya tiempo.*

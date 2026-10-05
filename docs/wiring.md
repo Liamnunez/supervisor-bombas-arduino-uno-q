@@ -3,7 +3,7 @@
 ## Resumen de Pines MCU (STM32U585)
 
 | Función | Pin MCU | Arduino Pin | Descripción |
-|---------|---------|-------------|-------------|
+| --- | --- | --- | --- |
 | PLC Bomba 1 | PA0 | A0 | Entrada - Orden PLC B1 |
 | PLC Bomba 2 | PA1 | A1 | Entrada - Orden PLC B2 |
 | PLC Bomba 3 | PA2 | A2 | Entrada - Orden PLC B3 |
@@ -118,7 +118,7 @@ Fail-safe: MCU sin alimentación → Relé abre por muelle
 ## Lista de Materiales (BOM)
 
 | Ítem | Cantidad | Descripción | Especificación |
-|------|----------|-------------|----------------|
+| --- | --- | --- | --- |
 | 1 | 1 | Arduino UNO Q | STM32U585 + QRB2210 |
 | 2 | 3 | Relés intermedios | 24VDC bobina, contacto 10A/250VAC, 1NO+1NC |
 | 3 | 3 | Contactores potencia | 24VDC bobina 80mA, 3P 18.5A AC-3 (7.5kW) |

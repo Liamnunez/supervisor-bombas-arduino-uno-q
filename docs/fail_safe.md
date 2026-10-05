@@ -14,7 +14,7 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Matriz de Fallos
 
 | Componente | Modo Fallo | Efecto en Relés | Bombas | Detectado por | Recuperación |
-|------------|------------|-----------------|--------|---------------|--------------|
+| --- | --- | --- | --- | --- | --- |
 | **MCU (STM32U585)** | Sin alimentación | Abren (muelle) | 0/3 | Hardware | Restaurar alimentación |
 | **MCU** | Firmware crashea | Abren (pin LOW por defecto) | 0/3 | Watchdog interno + Linux | Reinicio MCU |
 | **MCU** | Loop bloqueado | Mantienen último estado* | Variable | Watchdog HW (IWDG 5s) | Reset por IWDG |
@@ -32,9 +32,10 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 | **Contactor B1** | Contactos soldados | Siempre cerrado | B1: 1** | Feedback mismatch | Reemplazar contactor |
 | **Fuente 24VDC** | Caída tensión | Relés abren + MCU off | 0/3 | Todo cae | Restaurar 24V |
 
-* Salvo que el crash deje pines en HIGH (poco probable en STM32)
+- Salvo que el crash deje pines en HIGH (poco probable en STM32)
 
-** Peligroso: bomba arranca sin orden. Detectado por feedback mismatch → EMERGENCIA
+- Peligroso: bomba arranca sin orden. Detectado por feedback mismatch →
+  EMERGENCIA
 
 ---
 
@@ -187,21 +188,24 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 ## Métricas de Confiabilidad Objetivo (informativas, sin análisis formal)
 
 | Métrica | Objetivo de diseño | Nota |
-|---------|--------------------|------|
+| --- | --- | --- |
 | MTBF (Mean Time Between Failures) | \> 50,000 horas | Cálculo componentes + test acelerado (pendiente) |
 | MTTR (Mean Time To Recovery) | \< 15 min | Procedimientos documentados (pendiente) |
 | Tiempo detección fallo crítico | \< 2.1s | Feedback timeout + 1 ciclo |
 | Tiempo reacción emergencia | \< 10ms | Loop 10ms + escritura GPIO |
 | Disponibilidad sistema objetivo | 99.9% | Diseño redundante en capas (pendiente validación) |
 
-> **Nota:** No se afirma cumplimiento de SIL, PFD, IEC 61508 ni ninguna norma de seguridad funcional. Estos valores son *objetivos de diseño interno* sin análisis formal de soporte. Cualquier uso en funciones de seguridad requiere evaluación independiente.
+> **Nota:** No se afirma cumplimiento de SIL, PFD, IEC 61508 ni ninguna norma de
+> seguridad funcional. Estos valores son *objetivos de diseño interno* sin
+> análisis formal de soporte. Cualquier uso en funciones de seguridad requiere
+> evaluación independiente.
 
 ---
 
 ## Mantenimiento Predictivo
 
 | Componente | Intervalo | Acción |
-|------------|-----------|--------|
+| --- | --- | --- |
 | Relés intermedios | 12 meses | Test continuidad, medir resistencia bobina |
 | Contactores potencia | 12 meses | Inspección visual contactos, medir caída tensión |
 | Sensor nivel | 6 meses | Verificar 4mA/20mA con calibrador |
@@ -213,8 +217,14 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 ## Conclusión
 
-La arquitectura **en serie con relés NO** garantiza que **cualquier fallo individual** (MCU, relé, cable, alimentación, software) resulta en **estado seguro: bombas paradas**.
+La arquitectura **en serie con relés NO** garantiza que **cualquier fallo
+individual** (MCU, relé, cable, alimentación, software) resulta en **estado
+seguro: bombas paradas**.
 
-El único modo de fallo peligroso (contactos relé/contacto soldados) es **detectado activamente** por la comparación PLC vs Feedback, disparando EMERGENCIA global.
+El único modo de fallo peligroso (contactos relé/contacto soldados) es
+**detectado activamente** por la comparación PLC vs Feedback, disparando
+EMERGENCIA global.
 
-**Nivel de seguridad: Concepto/prototipo sin evaluación formal de integridad de seguridad. No apto para funciones de seguridad certificadas sin análisis independiente.**
+**Nivel de seguridad: Concepto/prototipo sin evaluación formal de integridad de
+seguridad. No apto para funciones de seguridad certificadas sin análisis
+independiente.**
