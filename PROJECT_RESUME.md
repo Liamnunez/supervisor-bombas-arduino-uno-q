@@ -51,6 +51,9 @@
 - `docs/incident_response.md` - **Fase 5**: declarar, contener, investigar, recuperar, revisar
 - `docs/drills.md` - **Fase 5**: 5 simulacros + plantilla de acta
 - `docs/ota_procedure.md` - **Fase 4**: OTA firmado, 3 pasos de riesgo, formato, PT-10..PT-15
+- `docs/operator_manual.md` - **Fase 6**: qué hace y qué NO hace el operador
+- `docs/competencies.md` - **Fase 6**: competencias por rol, separación de funciones
+- `docs/training_plan.md` - **Fase 6**: F0-F5, evaluación, reciclaje
 
 ### 🧪 Tests
 - **43 pytest** (state machine, relay logic, auth, alerts store, models)
@@ -131,14 +134,15 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 | Prioridad | Tarea | Esfuerzo | Bloqueante |
 |-----------|-------|----------|------------|
-| **1** | **Fase 4**: Firmware OTA seguro (Ed25519, rollback A/B) | 2-3h | - |
-| **2** | **Fase 6**: Formación operadores / competencias | 1h | - |
-| **4** | Completar placeholders de `escalation_matrix.md` con personal real | 1h | Datos de planta |
-| **5** | Confirmar PNOZ s4 en **modo watchdog** en banco (PT-09) | - | Hardware |
-| **6** | Verificar PB3 expuesto en el conector UNO Q | 15 min | Hardware |
-| **7** | Mapa de flash real para particiones A/B (2 MB, dual-bank) | - | Hardware |
-| **8** | Levantar historial de corriente real para validar umbrales 40/42/45 A | - | CT instalado |
-| **9** | Docker test en hardware real (QRB2210) | 1h | Hardware |
+| **1** | **Fase 4 paso 1**: `tools/sign_firmware.py` + verificar firma en CI | 2h | - |
+| **2** | Librería Ed25519 real (monocypher, fijada por hash de commit) | 1h | - |
+| **3** | Completar los `PENDIENTE` de los 8 docs de operación | 2h | Datos de planta |
+| **4** | Confirmar PNOZ s4 en **modo watchdog** en banco (PT-09) | - | Hardware |
+| **5** | Verificar PB3 expuesto en el conector UNO Q | 15 min | Hardware |
+| **6** | Mapa de flash real para particiones A/B (2 MB, dual-bank) | - | Hardware |
+| **7** | Levantar historial de corriente real para validar umbrales 40/42/45 A | - | CT instalado |
+| **8** | Docker test en hardware real (QRB2210) | 1h | Hardware |
+| **9** | **Fase 6 formación real**: los 6 requisitos previos de `training_plan.md` | - | Hardware |
 
 ## ✅ Fases Completadas
 
@@ -148,8 +152,10 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 | 2 | `docs/hazop_lopa.md` | `1d282b3` |
 | 3 | `docs/hardware_spec.md` | `e4a6e1a` |
 | 5 | 5 docs + heartbeat PNOZ (SIF-06) | `7642f3a` |
-| - | Politica de trip auto-recuperacion x3/15min | `19efa47` |
-| 4 | `fw_image` + `boot_slot` + `self_test` + `ota_procedure.md` | pendiente |
+| 5b | Política de trip auto-recuperación ×3/15min | `19efa47` |
+| 4 | `fw_image` + `boot_slot` + `self_test` + `ota_procedure.md` | `d662261` |
+| 4b | `tools/sign_firmware.py` + job CI `firmware-sign` | pendiente |
+| 6 | `operator_manual.md` + `competencies.md` + `training_plan.md` | pendiente |
 
 ---
 
@@ -220,8 +226,10 @@ cd linux && python -m app.main          # FastAPI :8080
 ## 📝 Próxima Acción Inmediata
 
 1. **Push de Fase 4** y verificar CI green.
-2. **Fase 4 paso 1**: firma en CI + flasheo físico. Captura casi toda la
-   seguridad sin tocar el bootloader. Ver `docs/ota_procedure.md` §3.
+2. **Fase 6**: completar los `PENDIENTE` de los docs de operación y ejecutar
+   F0 + F1 en cuanto haya hardware montado.
+3. **Con hardware**: commissioning + PT-01..PT-09 antes de cualquier
+   formación. Ver los requisitos previos de `docs/training_plan.md`.
 3. **Con hardware**: confirmar PNOZ s4 en modo watchdog (PT-09) y
    verificar que PB3 está expuesto en el UNO Q.
 4. **Validar en banco**: los umbrales 40/42/45 A y el enfriamiento de 60 s
