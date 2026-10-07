@@ -38,11 +38,11 @@ void CommBridge::update(const StateMachine& sm, uint8_t nivel_pct) {
     }
 }
 
-void CommBridge::processCommands(StateMachine& sm) {
+void CommBridge::processCommands(StateMachine& sm, TripPolicy& policy) {
     // Procesar comandos pendientes en el buffer
     McuMessage msg;
     while (tryParseMessage(msg)) {
-        handleCommand(msg, sm);
+        handleCommand(msg, sm, policy);
     }
 }
 
@@ -134,7 +134,7 @@ bool CommBridge::tryParseMessage(McuMessage& msg) {
     return true;
 }
 
-void CommBridge::handleCommand(const McuMessage& msg, StateMachine& sm) {
+void CommBridge::handleCommand(const McuMessage& msg, StateMachine& sm, TripPolicy& policy) {
     switch (static_cast<McuEvent>(msg.msg_type)) {
         case McuEvent::MODO_CHANGE: {
             // Payload: bit 0 = modo generador (1=GEN, 0=RED)
@@ -157,6 +157,10 @@ void CommBridge::handleCommand(const McuMessage& msg, StateMachine& sm) {
             if (msg.payload == 0xFFFF) {
                 sm.resetEmergencia();
                 sm.setMantenimiento(false);
+                // El operador ha atendido: la política de trip
+                // vuelve a empezar. Sin esto, el siguiente trip heredaría
+                // los intentos anteriores y podría latchear de inmediato.
+                policy.operatorReset();
                 // Si no hay emergencia HW, vuelve a normal/generador
             }
             break;

@@ -13,10 +13,20 @@ from .models import SystemStatus, BombaStatus, SystemState, McuEvent, Alert
 
 # Mensajes para códigos de error del firmware (0x60xx = corriente/protección)
 MCU_ERROR_MESSAGES = {
-    0x6001: "SOBRECARGA GENERADOR - EMERGENCIA: bombas desconectadas (requiere reset de operador)",
+    0x6001: "SOBRECARGA GENERADOR - bombas desconectadas (el sistema re-intenta solo)",
     0x6002: "Corriente con relés abiertos - posible contactor pegado",
     0x6003: "Sensor de corriente (CT) fuera de rango o desconectado",
     0x6010: "Aviso: corriente cerca del límite del generador",
+    0x6020: "Trip re-armado automáticamente por el supervisor",
+    0x6021: "Trip: intentos agotados - REQUIERE RESET DE OPERADOR",
+}
+
+# Nivel de alerta por código. Un re-arm automático es informativo, no crítico:
+# si se marcara como crítico, cada tormenta en generador llenaría el canal de
+# Telegram de críticos y el equipo dejaría de mirarlo.
+MCU_ERROR_LEVELS = {
+    0x6010: "warning",
+    0x6020: "info",
 }
 
 
@@ -191,7 +201,7 @@ class StateManager:
             
         elif event == McuEvent.ERROR:
             # Error del firmware (p.ej. protección de corriente 0x60xx)
-            level = "warning" if payload == 0x6010 else "critical"
+            level = MCU_ERROR_LEVELS.get(payload, "critical")
             self._emit_alert(
                 level, "MCU",
                 MCU_ERROR_MESSAGES.get(payload, f"Error MCU: 0x{payload:04X}"),

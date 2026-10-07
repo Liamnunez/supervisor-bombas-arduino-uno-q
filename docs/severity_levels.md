@@ -65,6 +65,7 @@ de bombas— lo resuelve el firmware sin intervención. Ver `docs/playbooks.md`.
 | W-05 | Sin heartbeat Linux por > 12 s | Reintento automático | Ninguna |
 | W-06 | PLC ordena bomba bloqueada (GENERADOR) | Log + contador | Ninguna |
 | W-07 | Reintento de trip n.º 2 de 3 | Alerta Telegram | Ninguna |
+| W-08 | Trip recuperado solo (0x6020) | Log + telemetría | Ninguna |
 
 **Clave:** W-07 es el aviso de que viene algo. Si llega W-07, alguien
 **debería** mirar el panel antes de las 03:00, pero no está obligado.
@@ -78,7 +79,7 @@ de bombas— lo resuelve el firmware sin intervención. Ver `docs/playbooks.md`.
 
 | # | Condición | Acción sistema | Acción persona |
 | --- | --- | --- | --- |
-| C-01 | Trip por sobrecorriente, **intento 1** | Relés abiertos + alerta | Ninguna (auto-recupera) |
+| C-01 | Trip por sobrecorriente, intentos 1-2 | Relés abiertos, re-arm tras 60 s | Ninguna (info) |
 | C-02 | Trip por sobrecorriente, **intento 3 de 3** | Relés abiertos + latched | **Sí — resetear** |
 | C-03 | Contactor pegado detectado | Relés abiertos + alerta | Sí si persiste |
 | C-04 | Sensor de corriente fuera de rango | Relés abiertos + alerta | **Sí — verificar CT** |

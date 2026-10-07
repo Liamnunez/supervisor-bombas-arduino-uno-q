@@ -19,8 +19,8 @@ stateDiagram-v2
     MANTENIMIENTO --> GENERADOR: Comando salir (Modo GEN)
     MANTENIMIENTO --> EMERGENCIA: Fault crítico
 
-    EMERGENCIA --> NORMAL: Reset + Modo RED
-    EMERGENCIA --> GENERADOR: Reset + Modo GEN
+    EMERGENCIA --> NORMAL: Auto-recuperación trip o Reset + Modo RED
+    EMERGENCIA --> GENERADOR: Auto-recuperación trip o Reset + Modo GEN
     EMERGENCIA --> MANTENIMIENTO: Comando mantenimiento
 ```
 
@@ -80,9 +80,25 @@ stateDiagram-v2
 
 ### EMERGENCIA → NORMAL/GENERADOR
 
+Dos caminos de salida, con consecuencias distintas:
+
+#### 1. Auto-recuperación (SIF-04, política Fase 5)
+
+- **Trigger**: `TripPolicy` decide `RECOVER` — sobrecarga previa, corriente
+  ya limpia, enfriamiento de 60 s cumplido, quedan intentos
+- **Acción**: sale de EMERGENCIA, re-arma el protector
+- **NO** limpia los `fault_count` de las bombas: una bomba sin feedback
+  sigue bloqueada. Lo implementa `StateMachine::autoRecoverTrip()`, que solo
+  acepta únicamente una emergencia con código `ERR_SOBRECARGA`
+- **Límite**: 3 intentos en 15 min; al agotarlos queda latcheada (C-02)
+
+#### 2. Reset de operador
+
 - **Trigger**: Comando `RESET_EMERGENCIA` (código 0xFFFF)
 - **Condición**: No haber triggers activos
-- **Acción**: Reset contadores fault, transición a estado según modo HW
+- **Acción**: Reset de contadores fault, transición a estado según modo
+  HW, **y puesta a cero de los intentos** de la política de trip
+  (`TripPolicy::operatorReset()`)
 
 ## Lógica de Control de Relés (Por Estado)
 

@@ -11,6 +11,7 @@
 
 #include "config.h"
 #include "state_machine.h"
+#include "trip_policy.h"
 
 class CommBridge {
 public:
@@ -18,7 +19,10 @@ public:
     
     void begin();
     void update(const StateMachine& sm, uint8_t nivel_pct);
-    void processCommands(StateMachine& sm);
+    // Procesa comandos recibidos de Linux.
+    // @param policy política de trip: el reset de operador debe limpiar sus
+    //        intentos, o el siguiente trip heredaría los intentos viejos.
+    void processCommands(StateMachine& sm, TripPolicy& policy);
     
     // Envío de eventos
     void sendStateChange(SystemState nuevo, SystemState anterior);
@@ -53,7 +57,7 @@ private:
     void uartWrite(const uint8_t* data, size_t len);
     bool uartRead(uint8_t& byte);
     bool tryParseMessage(McuMessage& msg);
-    void handleCommand(const McuMessage& msg, StateMachine& sm);
+    void handleCommand(const McuMessage& msg, StateMachine& sm, TripPolicy& policy);
     void buildMessage(McuMessage& msg, McuEvent type, uint8_t bomba_id, uint16_t payload);
 };
 

@@ -109,11 +109,31 @@
 #define CONTACTOR_PEGADO_DELAY_MS  1000
 #define CT_FAULT_DELAY_MS          500
 
+// --- Política de trip por sobrecorriente (SIF-04) - acordada en Fase 5 ---
+// El generador NO soporta 2 bombas. Si el trip deja el sistema parado
+// hasta que llegue un operador, en una tormenta nocturna el pozo se
+// desborda. Objetivo: recuperar solo sin abandonar al generador.
+//
+//   trip -> abre todos los relés (protege al DSE) -> espera enfriamiento
+//         -> si la corriente está limpia, re-arma solo
+//   TRIP_MAX_ATTEMPTS trips dentro de TRIP_WINDOW_MS -> NO re-arma más,
+//         queda latcheado y espera a una persona.
+//
+// El enfriamiento de 60 s existe para no machacar los motores con
+// arranques repetidos, no para proteger al generador (de eso ya se
+// encarga el hecho de abrir los relés).
+#define TRIP_MAX_ATTEMPTS     3         // intentos antes de exigir operador
+#define TRIP_WINDOW_MS        900000    // 15 min - ventana de conteo
+#define TRIP_COOLDOWN_MS      60000     // 60 s entre reintentos
+#define TRIP_RECOVER_AMPS     5.0f      // corriente máx. para re-armar
+
 // Códigos de error 0x60xx (corriente / protección)
 #define ERR_SOBRECARGA       0x6001  // Trip sobrecarga generador
 #define ERR_CONTACTOR_PEGADO 0x6002  // Corriente con relés abiertos
 #define ERR_SENSOR_CORRIENTE 0x6003  // CT fuera de rango / desconectado
 #define ERR_AVISO_SOBRECARGA 0x6010  // Aviso proximidad al límite
+#define ERR_TRIP_AUTO_RECOVER 0x6020  // Re-arm automático tras trip
+#define ERR_TRIP_LATCH       0x6021  // Intentos agotados: exige operador
 
 // --- Estados del Sistema ---
 enum class SystemState : uint8_t {

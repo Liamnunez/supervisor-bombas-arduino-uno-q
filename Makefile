@@ -96,6 +96,10 @@ tests-native:
 		tests/native/test_pnoz_heartbeat.cpp mcu/src/pnoz_heartbeat.cpp \
 		-o tests/native/build/test_pnoz_heartbeat
 	./tests/native/build/test_pnoz_heartbeat
+	g++ -std=c++17 -Wall -Wextra -I mcu/include \
+		tests/native/test_trip_policy.cpp mcu/src/trip_policy.cpp \
+		-o tests/native/build/test_trip_policy
+	./tests/native/build/test_trip_policy
 
 tests-coverage:
 	@echo "[TESTS] Con cobertura..."

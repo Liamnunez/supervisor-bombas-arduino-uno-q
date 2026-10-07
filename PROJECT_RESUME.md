@@ -55,13 +55,15 @@
 - **43 pytest** (state machine, relay logic, auth, alerts store, models)
 - **21 native C++** (current_protector: inrush ride-through, trip once, re-arm, welded, CT fault, millis wrap)
 - **23 native C++** (pnoz_heartbeat: fail-safe idle, pulse width, cadencia, reset, millis wrap, corte de latido)
-- **Todos pasan**: 87/87 ✅
+- **173 native C++** (trip_policy: ciclo de 3 intentos, edge vs estado, ventana de 15 min, cooldown, operatorReset, overflow guard)
+- **50 pytest** (incluye test_error_codes.py: semántica 0x6020/0x6021)
+- **Todos pasan**: 267/267 ✅
 
 ### 🐳 Docker & CI
 - `docker-compose.yml` (prod) + `docker-compose.dev.yml` (dev con live reload)
 - `linux/Dockerfile` multi-stage (builder → runtime, non-root)
 - GitHub Actions CI: test, lint (pylint/cppcheck/markdownlint), firmware-syntax, build-docs
-- Tests locales: `make tests` → 87/87 ✅
+- Tests locales: `make tests` → 267/267 ✅
 
 ---
 
@@ -156,14 +158,15 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 | **Safety relay** | Pilz PNOZ entre MCU y contactor | Comprar/instalar |
 | **E-stop físico** | Botón cableado directo a relés | Cablear |
 | **Watchdog PNOZ** | ✅ Aprobado Fase 5 — latido PB3→P1 | Verificar modo watchdog (PT-09) |
-| **Trip policy** | ✅ Aprobado Fase 5 — auto-recuperar ×3/15min | **Código aún latched: implementar** |
+| **Trip policy** | ✅ Aprobado Fase 5 — auto-recuperar ×3/15min | ✅ Implementada (`trip_policy.cpp`) |
 | **Carga del generador** | 1 bomba (~30 A) de capacidad | Verificar cargas auxiliares en sitio |
 | **Pozo en overflow** | Proteger generador: 1 bomba antes que 0 | Revisar con operador |
 
-> ⚠️ **La política de trip aprobada en Fase 5 NO está implementada en el
-> firmware.** `current_protector` + `state_machine` siguen lacheando la
-> emergencia sin auto-recuperación. Implementar en Fase 4 o antes de poner
-> en servicio.
+> ✅ **Política de trip implementada.** `mcu/src/trip_policy.cpp` + test
+> nativo propio (173 checks). `StateMachine::autoRecoverTrip()` sale de la
+> emergencia de sobrecarga **sin** limpiar los faults de feedback de las
+> bombas — solo el reset de operador los libera. El reset de operador también
+> pone a cero los intentos de la política.
 
 ---
 
@@ -171,7 +174,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 | Job | Último Estado | Commit |
 |-----|---------------|--------|
-| **test** | ✅ Local 87/87 | pendiente push |
+| **test** | ✅ Local 267/267 | pendiente push |
 | **lint** | ✅ docs nuevos markdownlint-clean | pendiente push |
 | **firmware-syntax** | ✅ verificado con stub CI | pendiente push |
 | **build-docs** | ✅ | pendiente push |
@@ -184,7 +187,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 ```bash
 # Tests
-make tests              # 87 tests (43 pytest + 44 native C++)
+make tests              # 267 tests (50 pytest + 217 native C++)
 make tests-py           # Solo pytest
 make tests-native       # Solo native C++
 
@@ -207,11 +210,11 @@ cd linux && python -m app.main          # FastAPI :8080
 
 1. **Push de Fase 5** y verificar CI green.
 2. **Fase 4**: firmware OTA firmado (Ed25519) con rollback A/B.
-3. **Antes de poner en servicio**: implementar la política de trip
-   aprobada (auto-recuperación ×3 / 15 min) — hoy el firmware sigue
-   lacheando la emergencia sin reintento.
-4. **Con hardware**: confirmar PNOZ s4 en modo watchdog (PT-09) y
+3. **Con hardware**: confirmar PNOZ s4 en modo watchdog (PT-09) y
    verificar que PB3 está expuesto en el UNO Q.
+4. **Validar en banco**: los umbrales 40/42/45 A y el enfriamiento de 60 s
+   con corriente real. Los 60 s están elegidos por criterio de vida ños
+   del motor, no medidos.
 
 ---
 

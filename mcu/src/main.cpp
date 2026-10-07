@@ -17,6 +17,7 @@
 #include "sensor_current.h"
 #include "current_protector.h"
 #include "pnoz_heartbeat.h"
+#include "trip_policy.h"
 
 // Instancias globales
 StateMachine stateMachine;
@@ -52,6 +53,19 @@ const uint32_t LOOP_INTERVAL_MS = 10;  // 100Hz loop principal
 
 // Latido al relé de seguridad PNOZ s4 (mod watchdog)
 PnozHeartbeat pnozHeartbeat(PNOZ_PULSE_PERIOD_MS);
+
+// Política de reintentos del trip (SIF-04) - el sistema se recupera solo
+// hasta TRIP_MAX_ATTEMPTS intentos dentro de TRIP_WINDOW_MS; después
+// espera a una persona.
+static TripPolicy makeTripPolicy() {
+    TripPolicyConfig cfg;
+    cfg.max_attempts = TRIP_MAX_ATTEMPTS;
+    cfg.window_ms = TRIP_WINDOW_MS;
+    cfg.cooldown_ms = TRIP_COOLDOWN_MS;
+    cfg.recover_amps = TRIP_RECOVER_AMPS;
+    return TripPolicy(cfg);
+}
+TripPolicy tripPolicy = makeTripPolicy();
 
 // Watchdog
 void watchdogSetup() {
@@ -206,14 +220,21 @@ void loop() {
         for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
             relays[i] = relayControl.getRelayState(i);
         }
+        bool trip_este_ciclo = false;
         switch (currentProtector.update(now, amps, relays)) {
             case ProtectorEvent::TRIP_OVERLOAD:
-                // Sobrecarga sostenida: EMERGENCIA (relés abiertos, requiere reset operador)
+                // Sobrecarga sostenida: EMERGENCIA (relés abiertos). La
+                // política decide después si se recupera sola o espera.
+                trip_este_ciclo = true;
                 stateMachine.triggerEmergencia(ERR_SOBRECARGA);
                 commBridge.sendError(ERR_SOBRECARGA);
                 Serial.print("[PROT] TRIP sobrecarga generador: ");
                 Serial.print(amps, 1);
-                Serial.println("A");
+                Serial.print("A (intento ");
+                Serial.print(tripPolicy.attempts() + 1);
+                Serial.print("/");
+                Serial.print(TRIP_MAX_ATTEMPTS);
+                Serial.println(")");
                 break;
             case ProtectorEvent::WARN_OVERLOAD:
                 commBridge.sendError(ERR_AVISO_SOBRECARGA);
@@ -232,6 +253,37 @@ void loop() {
             default:
                 break;
         }
+        // --- Política de trip (Fase 5): recuperar solo o esperar operador ---
+        // El trip NUNCA se re-arma mientras haya emergencia activa: durante
+        // el enfriamiento y tras agotar los intentos debe seguir abierto.
+        switch (tripPolicy.update(now, trip_este_ciclo, amps)) {
+            case TripDecision::RECOVER:
+                if (stateMachine.autoRecoverTrip()) {
+                    currentProtector.rearm();
+                    commBridge.sendError(ERR_TRIP_AUTO_RECOVER);
+                    Serial.print("[PROT] Auto-recuperado tras ");
+                    Serial.print(tripPolicy.attempts());
+                    Serial.print(" intento(s). Quedan ");
+                    Serial.print(tripPolicy.remaining());
+                    Serial.println(" antes de exigir operador");
+                }
+                break;
+            case TripDecision::HOLD:
+                // Los intentos están agotados: la emergencia queda latched.
+                // El re-arm de más abajo queda bloqueado por hayEmergencia().
+                commBridge.sendError(ERR_TRIP_LATCH);
+                Serial.print("[PROT] Trip ");
+                Serial.print(tripPolicy.attempts());
+                Serial.println(" intentos en la ventana: ESPERA OPERADOR");
+                break;
+            default:
+                break;
+        }
+
+        // Telemetría: nº de intentos de trip en la ventana (solo lectura
+        // para el dashboard; no añade campos al protocolo de 11 bytes).
+        stateMachine.setTripIntentos(tripPolicy.attempts());
+
         // Re-armar el trip solo cuando no hay emergencia activa
         if (!stateMachine.hayEmergencia()) {
             currentProtector.rearm();
@@ -250,5 +302,5 @@ void loop() {
     }
 
     // Procesar comandos desde Linux (no bloqueante)
-    commBridge.processCommands(stateMachine);
+    commBridge.processCommands(stateMachine, tripPolicy);
 }

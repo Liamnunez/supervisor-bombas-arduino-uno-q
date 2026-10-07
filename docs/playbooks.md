@@ -84,27 +84,36 @@ que cero bombas.
 
 **Disparador:** corriente > 42 A sostenida 3 s (SIF-04).
 
-**Qué hace el sistema:**
+**Qué hace el sistema (implementado en `mcu/src/trip_policy.cpp`):**
 
 1. Abre **todos** los relés → corriente a 0.
 2. El DSE ve una caída de carga, no una sobrecarga → no corta.
-3. Espera el periodo de reintento.
-4. Re-arma y vuelve a permitir el arranque.
+3. Espera el enfriamiento (`TRIP_COOLDOWN_MS` = 60 s).
+4. Si la corriente bajó de 5 A, re-arma solo y vuelve al estado anterior.
 5. Repite hasta **3 intentos en 15 minutos**.
-6. Si se agotan: `EMERGENCIA` latched + alerta crítica. **Requiere reset.**
+6. Al agotarlos: `EMERGENCIA` latched + `ERR_TRIP_LATCH` (0x6021).
+   **Ahí sí requiere reset.**
 
 **Por qué abrir todo y no solo una bomba:** si la corriente es demasiado
 alta, dejar cualquier bomba andando mantiene al generador en sobrecarga.
 El DSE corta, y entonces quedan **0 bombas** y un generador en mal estado.
 Abrir todo cuesta 1 bomba ahora; no abrirlo cuesta las 3 después.
 
+**Por qué 60 s de enfriamiento:** para no machacar los motores con arranques
+repetidos. La protección del generador ya la hizo el paso 1 (abrir relés);
+esperar no añade seguridad, solo evita 3 arranques en 2 minutos.
+
 **Qué ve la persona:**
 
-| Intentos | Alerta | Acción |
-| --- | --- | --- |
-| 1.º | Telegram, informativo | Ninguna |
-| 2.º | WARNING | Vigilar |
-| 3.º | CRITICAL | **Ir a resetear** |
+| Intentos | Códigos | Alerta | Acción |
+| --- | --- | --- | --- |
+| 1.º | 0x6001 luego 0x6020 | info | Ninguna |
+| 2.º | 0x6001 luego 0x6020 | info | Ninguna |
+| 3.º | 0x6001 y 0x6021 | **CRITICAL** | **Ir a resetear** |
+
+> **Patrón a vigilar en el dashboard:** un 0x6001 seguido de 0x6020 es un
+> trip recuperado solo. Un 0x6001 **sin** 0x6020 posterior significa que el
+> sistema no se recuperó y hay que mirarlo.
 
 **Reset (solo R2/R3, con token `operator` o `admin`):**
 
@@ -115,8 +124,18 @@ curl -X POST https://<host>/api/mcu/reset_emergencia \
   -d '{"motivo":"trip x3 - revisar CT y contactores"}'
 ```
 
-> El `motivo` es obligatorio conceptualmente: queda en el audit log JSONL y
-> es lo que permite reconstruir qué pasó tres meses después.
+> El `motivo` queda en el audit log JSONL y es lo que permite reconstruir
+> qué pasó tres meses después.
+>
+> El reset del operador **también pone a cero los intentos** de la política
+> de trip (`CommBridge::handleCommand` → `policy.operatorReset()`). Sin eso, el
+> siguiente trip heredaría los intentos viejos y podría latchear de
+> inmediato, con un solo fallo nuevo.
+
+**Lo que la auto-recuperación NO limpia:** los faults de feedback de cada
+bomba. Si una bomba perdió el retorno auxiliar, sigue bloqueada tras el
+auto-re-arm. Solo el reset de operador los libera (`autoRecoverTrip()` no
+llama a `clearFaults()`; `resetEmergencia()` sí).
 
 ---
 
@@ -129,12 +148,14 @@ supervisor, o el CT está mintiendo.
 
 **Qué hace el sistema:**
 
-1. Detecta `CONTACTOR_WELDED`.
-2. Abre relés (no sirve de nada, pero queda constancia).
-3. Alerta crítica + telemetría.
+1. Detecta `CONTACTOR_WELDED` (ya viene con los relés abiertos: la
+   detección es "corriente fluyendo sin nuestro permiso").
+2. Envía alerta crítica + telemetría. No toca los relés.
 
-**Por qué NO se auto-recupera:** si un contactor está soldado, el relé del
-MCU no controla esa bomba. Reintentar es gastar corriente sin efecto.
+**Por qué no intenta hacer nada más:** si el contactor está soldado, el
+relé del MCU ya no manda sobre esa bomba. Abrir o cerrar relés es
+indiferente; lo único que puede hacer es avisar. Por eso este escenario
+**siempre** necesita a una persona y no tiene auto-recuperación.
 
 **Pasos para R4 (eléctrico):**
 

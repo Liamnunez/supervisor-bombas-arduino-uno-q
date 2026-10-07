@@ -36,6 +36,17 @@ public:
     // Reset de emergencia (comando operador) - limpia emergencia Y latch de bombas
     void resetEmergencia();
     
+    // Auto-recuperación de la emergencia de sobrecarga (política Fase 5).
+    // A diferencia de resetEmergencia(), NO limpia el latch de fallos de
+    // bombas: si una bomba perdió el feedback debe seguir bloqueada. Solo
+    // se retira la emergencia que YRIGE el protector de corriente.
+    // @return true si había emergencia de sobrecarga que recuperar
+    bool autoRecoverTrip();
+    
+    // Nº de intentos de trip acumulados en la ventana (telemetría)
+    uint8_t tripIntentos() const { return trip_attempts; }
+    void setTripIntentos(uint8_t n) { trip_attempts = n; }
+    
     // Limpiar latch de fallos de bombas (comando operador)
     void clearFaults();
     
@@ -84,6 +95,7 @@ private:
     bool modo_mantenimiento = false;
     bool emergencia_activa = false;
     uint16_t emergencia_codigo = 0;
+    uint8_t trip_attempts = 0;      // intentos de trip en la ventana
     
     // Callbacks
     StateChangeCallback state_change_cb = nullptr;

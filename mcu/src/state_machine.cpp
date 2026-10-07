@@ -169,8 +169,26 @@ void StateMachine::resetEmergencia() {
     }
     emergencia_activa = false;
     emergencia_codigo = 0;
-    // Salir de EMERGENCIA (transitionTo limpia fault_count de las bombas)
+    // Reset de OPERADOR: además de salir de emergencia libera las bombas
+    // que tengan faults de feedback pendientes.
+    clearFaults();
     transitionTo(computeDesiredState());
+}
+
+bool StateMachine::autoRecoverTrip() {
+    // Solo se recupera lo que se puede recuperar automáticamente: una
+    // emergencia de sobrecarga. Cualquier otro motivo (fault de feedback,
+    // E-Stop, mantenimiento) necesita a una persona.
+    if (!emergencia_activa || emergencia_codigo != ERR_SOBRECARGA) {
+        return false;
+    }
+    emergencia_activa = false;
+    emergencia_codigo = 0;
+    // NO clearFaults(): una bomba con feedback perdido debe seguir
+    // bloqueada. Por eso transitionTo() ya no limpia los faults por su
+    // cuenta - lo hace resetEmergencia() de forma explícita.
+    transitionTo(computeDesiredState());
+    return true;
 }
 
 void StateMachine::clearFaults() {
@@ -194,14 +212,12 @@ void StateMachine::transitionTo(SystemState new_state) {
     previous_state = current_state;
     current_state = new_state;
     
-    // Reset contadores de fault al salir de emergencia
-    if (previous_state == SystemState::EMERGENCIA && new_state != SystemState::EMERGENCIA) {
-        for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
-            bombas[i].fault_count = 0;
-        }
-        emergencia_activa = false;
-        emergencia_codigo = 0;
-    }
+    // NO se limpian aquí los fault_count ni la emergencia: decide quien
+    // llama (resetEmergencia -> clearFaults; autoRecoverTrip -> los
+    // conserva a propósito). Hacerlo en la transición imponía la regla
+    // "todo fault se borra al salir de emergencia", que rompía la
+    // auto-recuperación: una bomba con el feedback perdido volvería a
+    // arrancar sola sin que nadie lo supiera.
     
     if (state_change_cb) {
         state_change_cb(current_state, previous_state);
@@ -345,7 +361,11 @@ void StateMachine::printState() const {
     Serial.print(" | Mantenimiento: ");
     Serial.print(modo_mantenimiento ? "SI" : "NO");
     Serial.print(" | Emergencia: ");
-    Serial.println(emergencia_activa ? "SI" : "NO");
+    Serial.print(emergencia_activa ? "SI" : "NO");
+    Serial.print(" | Trip: ");
+    Serial.print(trip_attempts);
+    Serial.print("/");
+    Serial.println(TRIP_MAX_ATTEMPTS);
     
     for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
         Serial.print("  B");
