@@ -15,6 +15,16 @@ tests/native/build/
 # PlatformIO
 mcu/.pio/
 
+# Claves de firma OTA: la privada NUNCA entra en git (docs/ota_procedure.md §7).
+# Se ignoran las claves privadas y las claves generadas en local; la pública de
+# producción va compilada en el firmware, no como fichero suelto.
+*_private.key
+*_private.pem
+*_public.key
+*_public.pem
+keys/
+tools/keys/
+
 # Node (solo para markdownlint en local; la app no usa JS)
 node_modules/
 package.json

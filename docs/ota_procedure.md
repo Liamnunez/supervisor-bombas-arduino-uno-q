@@ -109,7 +109,7 @@ El manifiesto va al principio de la imagen. Todo offsets en bytes.
 ```text
 Offset  Tam  Campo           Descripción
 ------  ---  --------------  ------------------------------------------
-0x00     4   magic           'F','W','I','M' (0x4D494657 LE)
+0x00     4   magic           0x4D495746 LE = bytes "FWIM"
 0x04     4   header_len      Tamaño del manifiesto (= 64)
 0x08     4   version         Versión monotónica (nunca decrece)
 0x0C     4   payload_len     Bytes de firmware

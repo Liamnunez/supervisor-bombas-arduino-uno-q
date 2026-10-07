@@ -4,7 +4,7 @@
  *
  * Formato de la imagen (ver docs/ota_procedure.md §4):
  *
- *   0x00  4   magic          'F','W','I','M'
+ *   0x00  4   magic          0x4D495746 = bytes "FWIM"
  *   0x04  4   header_len     = 64
  *   0x08  4   version        monotónica, nunca decrece
  *   0x0C  4   payload_len    bytes de firmware
@@ -40,7 +40,7 @@
 #include <stddef.h>
 
 /** Tamaño fijo del manifiesto */
-#define FW_MAGIC          0x4D494657u  /* "FWIM" little-endian */
+#define FW_MAGIC          0x4D495746u  /* "FWIM" little-endian */
 #define FW_HEADER_LEN     64u
 #define FW_SIGNATURE_LEN  64u          /* Ed25519 */
 

@@ -81,7 +81,7 @@ jobs:
         run: cppcheck --enable=all --std=c++17 --suppress=missingIncludeSystem src/ include/
 
       - name: Run markdownlint (docs)
-        run: markdownlint docs/*.md README.md
+        run: markdownlint docs/*.md README.md tools/README.md
 
   firmware-syntax:
     name: Firmware Syntax Check (stub Arduino)
@@ -198,6 +198,135 @@ jobs:
           g++ -fsyntax-only -std=c++17 -Wall -Wextra \
             -I /tmp/arduino_stub -I mcu/include \
             -include Arduino.h mcu/src/*.cpp 2>&1 | grep -v "unused-parameter" | grep "error" && exit 1 || true
+
+  firmware-sign:
+    name: Firmware Signing (Ed25519, Fase 4)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install cryptography
+        run: |
+          python -m pip install --upgrade pip
+          pip install cryptography pytest
+
+      # Clave EFIMERA: se genera aqui y se tira al terminar el job. La clave de
+      # produccion es un secret del pipeline de release, nunca este fichero.
+      - name: Generate ephemeral signing key
+        run: |
+          python3 tools/sign_firmware.py keygen --out-prefix /tmp/ota/ota
+          test -f /tmp/ota/ota_private.key
+          test -f /tmp/ota/ota_public.key
+          test "$(stat -c %a /tmp/ota/ota_private.key)" = "600"
+
+      - name: Create test firmware binary
+        run: |
+          dd if=/dev/urandom of=/tmp/ota/fw.bin bs=1024 count=8
+          ls -l /tmp/ota/fw.bin
+
+      - name: Sign firmware
+        run: |
+          python3 tools/sign_firmware.py sign /tmp/ota/fw.bin \
+            --version 12 \
+            --build-id 3735928559 \
+            --key /tmp/ota/ota_private.key \
+            --out /tmp/ota/supervisor.fwim
+
+      # --json para que el log de CI tenga los campos del veredicto del C++.
+      - name: Verify signature (must pass)
+        run: |
+          python3 tools/sign_firmware.py verify /tmp/ota/supervisor.fwim \
+            --pubkey /tmp/ota/ota_public.key --json
+
+      # El job tiene que FALLAR si la manipulacion no se detecta. No se usa
+      # `|| true` ni se ignora el codigo de salida: la comprobacion es real.
+      # `set +e` desactiva el errexit del shell de Actions para poder LEER el
+      # codigo de salida del comando que se espera que falle.
+      - name: Tamper payload and verify (must fail)
+        run: |
+          set +e
+          python3 - <<'PY'
+          data = bytearray(open("/tmp/ota/supervisor.fwim", "rb").read())
+          # Un solo bit en el payload: el CRC-32 lo tiene que detectar.
+          data[64 + 100] ^= 0x01
+          open("/tmp/ota/manipulada.fwim", "wb").write(bytes(data))
+          PY
+          python3 tools/sign_firmware.py verify /tmp/ota/manipulada.fwim \
+            --pubkey /tmp/ota/ota_public.key --json
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::una imagen manipulada verifico correctamente"
+            exit 1
+          fi
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::se esperaba codigo de salida 1, se obtuvo $rc"
+            exit 1
+          fi
+          echo "OK: la manipulacion se ha detectado (codigo $rc)"
+
+      - name: Tamper signature and verify (must fail)
+        run: |
+          set +e
+          python3 - <<'PY'
+          data = bytearray(open("/tmp/ota/supervisor.fwim", "rb").read())
+          # Los ultimos 64 bytes son la firma.
+          data[-1] ^= 0xFF
+          open("/tmp/ota/manipulada_firma.fwim", "wb").write(bytes(data))
+          PY
+          python3 tools/sign_firmware.py verify /tmp/ota/manipulada_firma.fwim \
+            --pubkey /tmp/ota/ota_public.key --json
+          rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::se esperaba el rechazo de la firma (codigo 1), se obtuvo $rc"
+            exit 1
+          fi
+          echo "OK: la firma manipulada se ha rechazado (codigo $rc)"
+
+      # Anti-rollback: la imagen es la version 12, así que instalar la 12 o una
+      # mayor la tiene que rechazar.
+      - name: Anti-rollback check (must fail)
+        run: |
+          set +e
+          python3 tools/sign_firmware.py verify /tmp/ota/supervisor.fwim \
+            --pubkey /tmp/ota/ota_public.key --min-version 12 --json
+          rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::se esperaba el rechazo por anti-rollback (codigo 1), se obtuvo $rc"
+            exit 1
+          fi
+          echo "OK: la reinstalacion de la misma version se ha rechazado"
+
+      # Otra clave: la firma es de A, se verifica con la publica de B.
+      - name: Verify with a different key (must fail)
+        run: |
+          set +e
+          python3 tools/sign_firmware.py keygen --out-prefix /tmp/ota/otro
+          python3 tools/sign_firmware.py verify /tmp/ota/supervisor.fwim \
+            --pubkey /tmp/ota/otro_public.key --json
+          rc=$?
+          if [ "$rc" -ne 1 ]; then
+            echo "::error::se esperaba el rechazo por clave distinta (codigo 1), se obtuvo $rc"
+            exit 1
+          fi
+          echo "OK: la verificacion con otra clave se ha rechazado"
+
+      - name: No private key in the repository
+        run: |
+          if git ls-files | grep -Ei '\.(key|pem)$|(^|/)keys/'; then
+            echo "::error::hay ficheros de clave versionados en el repo"
+            exit 1
+          fi
+          echo "OK: no hay claves privadas en el repo"
+
+      - name: Run sign/verify tests
+        run: python3 -m pytest tests/test_sign_firmware.py -v
 
   build-docs:
     name: Verify docs render

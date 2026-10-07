@@ -85,7 +85,9 @@ static void put32(std::vector<uint8_t>& v, size_t off, uint32_t x) {
 std::vector<uint8_t> ImageBuilder::build(bool corrupt_payload,
                                          bool bad_signature) const {
     std::vector<uint8_t> img(FW_HEADER_LEN, 0);
-    img[0] = 'F'; img[1] = 'W'; img[2] = 'I'; img[3] = 'M';
+    // Sin bytes ASCII a mano: el magic es 0x4D495746, que en memoria
+    // se lee como "FWIM". Escribirlo a mano y luego pisarlo con put32()
+    // seria la mejor forma de que el comentario y el valor discrepen.
     put32(img, 0x00, FW_MAGIC);
     put32(img, 0x04, FW_HEADER_LEN);
     put32(img, 0x08, version);
