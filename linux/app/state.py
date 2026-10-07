@@ -49,8 +49,9 @@ MCU_ERROR_MESSAGES = {
 # si se marcara como crítico, cada tormenta en generador llenaría el canal de
 # Telegram de críticos y el equipo dejaría de mirarlo.
 MCU_ERROR_LEVELS = {
+    0x6001: "warning",   # trip en curso: el sistema re-intenta solo
     0x6010: "warning",
-    0x6020: "info",
+    0x6020: "info",      # trip recuperado solo: normal en generador
 }
 
 

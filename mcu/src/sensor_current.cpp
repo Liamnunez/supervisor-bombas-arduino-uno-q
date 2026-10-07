@@ -7,7 +7,14 @@
 #include <Arduino.h>
 
 void SensorCurrent::begin() {
-    pinMode(PIN_CORRIENTE_ADC, INPUT);
+    // INPUT_ANALOG, no INPUT. INPUT deja el pin como entrada digital y
+    // desconecta el periférico ADC, así que analogRead() no mide nada.
+    //
+    // Este pin es el único sensor de SIF-04 (la barrera software contra 2
+    // bombas en el generador). Con INPUT leería ~0 A, el protector nunca
+    // vería sobrecarga y PT-05 no podría ejecutarse. sensor_level.cpp usa
+    // INPUT_ANALOG para PA4: mismo tipo de señal, tratamiento distinto.
+    pinMode(PIN_CORRIENTE_ADC, INPUT_ANALOG);
     // Nota: en el arranque el ADC del entorno Arduino ya está inicializado.
 }
 

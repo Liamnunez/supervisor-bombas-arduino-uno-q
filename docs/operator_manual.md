@@ -75,9 +75,14 @@ ningún botón para cambiarlo.
 > separado del resto.
 
 ---
-> ⚠️ **Aviso:** cambiar el modo generador a distancia **desactiva el
-> interlock de 1 bomba**. Es la excepción documentada al principio del
-> proyecto y solo se usa cuando hay un motivo real.
+> ⚠️ **Aviso:** el comando de modo generador a distancia solo puede
+> **endurecer**, nunca relajar. Si el contacto del ATS dice GENERADOR,
+> ningún comando -tampoco de admin- lo cambia a RED, y el sistema se queda
+> con 1 bomba. Endurecer (RED → GENERADOR) sí se permite, por prudencia.
+>
+> La barra para que veas aquí, abajo, es la de admin sobre operator: es un
+> permiso extra, no un interruptor de seguridad. Si el ATS está en
+> GENERADOR, la bomba 1 sigue siendo la única.
 
 ---
 

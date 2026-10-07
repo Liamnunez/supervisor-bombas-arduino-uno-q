@@ -45,10 +45,20 @@ def test_aviso_es_warning():
 
 
 def test_sin_entrada_es_critico():
-    """Por defecto critical: fail-safe del nivel de alerta."""
-    for code in (0x6001, 0x6002, 0x6003, 0x6021):
+    """Por defecto critical: fail-safe del nivel de alerta.
+
+    0x6001 NO debe caer aqui. El trip se recupera solo en 3 de cada 4
+    veces, asi que marcarlo como critico llenaba el canal de Telegram de
+    rojos en cada tormenta en generador: fatiga de alertas.
+    """
+    for code in (0x6002, 0x6003, 0x6021):
         assert code not in MCU_ERROR_LEVELS, code
         assert MCU_ERROR_LEVELS.get(code, "critical") == "critical"
+
+
+def test_trip_en_curso_es_warning():
+    """0x6001 es warning: el sistema ya paró y re-intenta solo."""
+    assert MCU_ERROR_LEVELS[0x6001] == "warning"
 
 
 def test_codigos_conocidos_no_tienen_nivel_inventado():
@@ -66,6 +76,7 @@ if __name__ == '__main__':
         test_rearm_es_info_no_critico,
         test_aviso_es_warning,
         test_sin_entrada_es_critico,
+        test_trip_en_curso_es_warning,
         test_codigos_conocidos_no_tienen_nivel_inventado,
     ]
     fallos = 0
