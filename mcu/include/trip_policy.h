@@ -31,6 +31,16 @@
 /** Máximo de intentos guardados en el histórico circular */
 #define TRIP_MAX_SLOTS 8
 
+/**
+ * Enfriamiento mínimo entre reintentos (ms).
+ *
+ * Con cooldown 0 la condición se cumpliría en el mismo ciclo del trip:
+ * RECOVER en cada vuelta del loop de 100 Hz, o sea re-arm del protector
+ * sin ninguna espera, que es lo contrario de lo que protege al motor.
+ * El mínimo hace la política a prueba de un 0 por error de tecleo.
+ */
+#define TRIP_MIN_COOLDOWN_MS 1000
+
 /** Decisión de la política para este ciclo */
 enum class TripDecision : uint8_t {
     NONE = 0,     // nada que hacer (la emergencia ya la puso el protector)
@@ -87,6 +97,7 @@ private:
 
     void prune(uint32_t now_ms);
     uint8_t maxAttempts() const;
+    uint32_t cooldownMs() const;
     bool cooldownVencido(uint32_t now_ms) const;
 };
 

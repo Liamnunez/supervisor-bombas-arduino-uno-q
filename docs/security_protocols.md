@@ -26,12 +26,22 @@
 | SIF | Descripción | Trigger | Acción | SIL Target | Proof Test |
 | --- | --- | --- | --- | --- | --- |
 | **SIF-01** | Limitar bombas en GEN | Modo HW = GEN + PLC ordena B2/B3 | Bloquear relés B2/B3 | SIL 1 | Anual |
-| **SIF-02** | Feedback timeout | PLC=ON, FB=OFF > 2s | Abrir relé, fault_count++ | SIL 1 | Semestral |
+| **SIF-02** | Feedback timeout (no arranca) | PLC=ON, FB=OFF > 2s | Bloquear esa bomba (fault_count++) | SIL 1 | Semestral |
 | **SIF-03** | Contactor soldado | PLC=OFF, FB=ON > 2s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-04** | Sobrecorriente gen | I > 42A > 3s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-05** | Nivel sensor fail | ADC < 3.5mA o > 21mA | Alerta + safe state | SIL 1 | Anual |
 | **SIF-06** | Watchdog de latido HW | Pulso PB3→PNOZ P1 se interrumpe | PNOZ abre 13-14 y 23-24 | SIL 1 | Trimestral |
 
+> **SIF-02 vs SIF-03 no son lo mismo.** SIF-02 es "mandamos arrancar y no
+> arranca": la bomba queda bloqueada y las demás siguen bajo control.
+> SIF-03 es "el contactor está cerrado cuando lo mandamos abierto": esa
+> bomba ya **no** la controlamos, así que la parada es global. Bloquear solo
+> la bomba pegada no cerraba el bypass en GENERADOR (B1 soldada consumiendo
+> 30 A + arranque de B2 = 60 A sobre un generador de 45 A).
+>
+> **Nota sobre SIF-03 y `autoRecoverTrip()`:** la auto-recuperación solo
+> actúa sobre `ERR_SOBRECARGA`. Una emergencia por contactor soldado exige
+> operador siempre.
 > **SIF-06** es la única SIF cuya detección no depende del firmware: la
 > ejecuta el PNOZ s4 en modo watchdog. Un firmware colgado deja de emitir
 > el pulso y la cadena de relés se abre sin participación del software.

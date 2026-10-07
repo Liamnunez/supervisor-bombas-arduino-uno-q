@@ -193,9 +193,21 @@ static inline uint8_t crc8(const uint8_t* data, size_t len) {
     return crc;
 }
 
+// Rango del CRC8: offsets [1 .. 8], 8 bytes = msg_type, bomba_id,
+// timestamp(4) y payload(2). Quedan fuera start_byte (0), crc8 (9) y
+// end_byte (10): los dos de encuadre nunca se firman y el CRC no se firma
+// a sí mismo.
+//
+// ⚠️ Este rango está TRIPLICADO y tiene que coincidir byte a byte en:
+//     mcu/include/config.h        validar_mensaje()  (comprueba)
+//     mcu/src/comm_bridge.cpp    buildMessage()    (calcula)
+//     linux/app/state.py         _validate_crc() y send_command()
+// Las tres copias discrepaban (0..8 / 1..8 / 1..9) y el firmware no
+// aceptaba sus propios frames. No cambiar uno sin cambiar los tres.
+
 // Validar mensaje
 static inline bool validar_mensaje(const McuMessage& msg) {
-    uint8_t calc_crc = crc8((uint8_t*)&msg, sizeof(McuMessage) - 2);
+    uint8_t calc_crc = crc8((uint8_t*)&msg + 1, sizeof(McuMessage) - 3);
     return msg.start_byte == 0xAA && msg.end_byte == 0x55 && calc_crc == msg.crc8;
 }
 

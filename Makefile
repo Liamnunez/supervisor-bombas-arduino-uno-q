@@ -108,6 +108,26 @@ tests-native:
 		tests/native/test_boot_slot.cpp mcu/src/boot_slot.cpp mcu/src/self_test.cpp \
 		-o tests/native/build/test_boot_slot
 	./tests/native/build/test_boot_slot
+	g++ -std=c++17 -Wall -Wextra -I mcu/include -I tests/native/fake_arduino \
+		-include Arduino.h \
+		tests/native/test_state_machine.cpp mcu/src/state_machine.cpp \
+		mcu/src/relay_control.cpp \
+		-o tests/native/build/test_state_machine
+	./tests/native/build/test_state_machine
+	g++ -std=c++17 -Wall -Wextra -I mcu/include -I tests/native/fake_arduino \
+		-include Arduino.h \
+		tests/native/test_protocolo_crc.cpp mcu/src/comm_bridge.cpp \
+		mcu/src/state_machine.cpp mcu/src/trip_policy.cpp \
+		-o tests/native/build/test_protocolo_crc
+	./tests/native/build/test_protocolo_crc
+	g++ -std=c++17 -Wall -Wextra -I mcu/include \
+		tests/native/test_trip_policy_adversarial.cpp mcu/src/trip_policy.cpp \
+		-o tests/native/build/test_trip_policy_adversarial
+	./tests/native/build/test_trip_policy_adversarial
+	g++ -std=c++17 -Wall -Wextra -I mcu/include \
+		tests/native/test_pnoz_adversarial.cpp mcu/src/pnoz_heartbeat.cpp \
+		-o tests/native/build/test_pnoz_adversarial
+	./tests/native/build/test_pnoz_adversarial
 
 tests-coverage:
 	@echo "[TESTS] Con cobertura..."

@@ -12,6 +12,30 @@ from datetime import datetime
 from .models import SystemStatus, BombaStatus, SystemState, McuEvent, Alert
 
 # Mensajes para códigos de error del firmware (0x60xx = corriente/protección)
+def _crc8(data: bytes) -> int:
+    """CRC8 polinomio 0x07 (Dallas/Maxim) sobre `data`.
+
+    Traducción literal de crc8() en mcu/include/config.h. La máscara & 0xFF
+    en C la hacía el propio tipo uint8_t al asignar; en Python los enteros no
+    se truncan, así que el CRC crecía hasta ~2^80 y `msg[9] = crc` lanzaba
+    ValueError. Por eso el enmascarado es explícito aquí: es la diferencia
+    entre "los enteros de Python no tienen anchura fija" y una comunicación
+    rota en silencio.
+
+    ⚠️ El rango de bytes que se pasa aquí lo decide el llamante. El
+    contrato del protocolo es [1..8]; ver _validate_crc().
+    """
+    crc = 0
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            # En C: crc = (crc & 0x80) ? (crc << 1) ^ 0x07 : (crc << 1)
+            # con crc declarado uint8_t, así que cada desplazamiento
+            # truncaba a 8 bits.
+            crc = ((crc << 1) ^ 0x07) & 0xFF if (crc & 0x80) else (crc << 1) & 0xFF
+    return crc
+
+
 MCU_ERROR_MESSAGES = {
     0x6001: "SOBRECARGA GENERADOR - bombas desconectadas (el sistema re-intenta solo)",
     0x6002: "Corriente con relés abiertos - posible contactor pegado",
@@ -164,14 +188,21 @@ class StateManager:
         self._process_event(event, bomba_id, timestamp, payload)
     
     def _validate_crc(self, data: bytes) -> bool:
-        # CRC8 sobre bytes 1-9 (excluye start_byte, crc8, end_byte) = 9 bytes
-        # Formato: [0]=0xAA, [1]=msg_type, [2]=bomba_id, [3-6]=timestamp, [7-8]=payload, [9]=crc8, [10]=0x55
-        crc = 0
-        for b in data[1:10]:
-            crc ^= b
-            for _ in range(8):
-                crc = (crc << 1) ^ 0x07 if (crc & 0x80) else (crc << 1)
-        return crc == data[10]
+        """CRC8 sobre los offsets [1..8] (8 bytes).
+
+        Formato: [0]=0xAA, [1]=msg_type, [2]=bomba_id, [3-6]=timestamp,
+        [7-8]=payload, [9]=crc8, [10]=0x55.
+
+        Se excluyen los dos bytes de encuadre (0 y 10) y el propio CRC (9),
+        que no puede firmarse a sí mismo.
+
+        ⚠️ Rango triplicado: debe coincidir byte a byte con
+        validar_mensaje() en mcu/include/config.h y buildMessage() en
+        mcu/src/comm_bridge.cpp. Las tres copias discrepaban y el firmware
+        no aceptaba sus propios frames.
+        """
+        crc = _crc8(data[1:9])
+        return crc == data[9]
     
     def _process_event(self, event: McuEvent, bomba_id: int, timestamp: int, payload: int):
         changed = False
@@ -272,13 +303,9 @@ class StateManager:
         # msg[9] = crc placeholder (will be overwritten)
         msg[10] = 0x55
         
-        # Calcular CRC8 sobre bytes 1-9 (excluye start_byte, crc8, end_byte)
-        crc = 0
-        for b in msg[1:10]:
-            crc ^= b
-            for _ in range(8):
-                crc = (crc << 1) ^ 0x07 if (crc & 0x80) else (crc << 1)
-        msg[9] = crc
+        # Calcular CRC8 sobre los offsets [1..8] (mismo rango que
+        # validar_mensaje() y buildMessage()). Ver _validate_crc().
+        msg[9] = _crc8(msg[1:9])
         
         try:
             self.serial.write(msg)

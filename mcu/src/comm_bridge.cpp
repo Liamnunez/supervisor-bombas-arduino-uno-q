@@ -21,27 +21,45 @@ void CommBridge::begin() {
 }
 
 void CommBridge::update(const StateMachine& sm, uint8_t nivel_pct) {
-    // Leer bytes disponibles
-    while (MCU_SERIAL.available()) {
-        uint8_t byte;
-        if (uartRead(byte)) {
-            rx_buffer[rx_head] = byte;
-            rx_head = (rx_head + 1) % RX_BUF_SIZE;
+    // Leer bytes del UART HARDWARE y meterlos en el anillo interno.
+    //
+    // Antes este bucle llamaba a uartRead(), que ya lee del anillo
+    // (rx_tail..rx_head). Como nada copiaba del UART real al anillo, un
+    // byte pendiente en el hardware dejaba available() a true para
+    // siempre, uartRead() devolvía false y el bucle no terminaba nunca:
+    // el firmware se colgaba con el primer byte recibido.
+    int presupuesto = RX_BUF_SIZE;   // tope: no se debe bloquear el loop
+    while (MCU_SERIAL.available() && presupuesto-- > 0) {
+        int v = MCU_SERIAL.read();
+        if (v < 0) break;
+        rx_buffer[rx_head] = static_cast<uint8_t>(v);
+        rx_head = (rx_head + 1) % RX_BUF_SIZE;
+        // Ring lleno: descartar el más antiguo en vez de sobrescribir a
+        // medias. Un frame corrupto es mejor que perderlos todos.
+        if (rx_head == rx_tail) {
+            rx_tail = (rx_tail + 1) % RX_BUF_SIZE;
+            overflow_count++;
         }
     }
-    
-    // Intentar parsear mensajes completos
-    McuMessage msg;
-    while (tryParseMessage(msg)) {
-        if (rx_callback) rx_callback(msg);
-        // Los comandos se procesan en processCommands()
-    }
+
+    // NO se parsea nada aquí. processCommands() es el único consumidor del
+    // anillo: si update() tambien consumiera, se llevara los frames antes
+    // de que processCommands() los viera y TODOS los comandos remotos se
+    // perderian en silencio (main.cpp no fija setRxCallback, asi que no
+    // habia ningun otro consumidor). El comentario original de aqui ya
+    // decia "Los comandos se procesan en processCommands()", pero el
+    // codigo no lo cumplia.
+    (void)sm;
+    (void)nivel_pct;
 }
 
 void CommBridge::processCommands(StateMachine& sm, TripPolicy& policy) {
-    // Procesar comandos pendientes en el buffer
+    // Único consumidor del anillo: parsea y despacha. Se llama en cada
+    // vuelta del loop principal (main.cpp), también fuera del bloque de
+    // 100 Hz, para que un comando no espere al siguiente tick.
     McuMessage msg;
     while (tryParseMessage(msg)) {
+        if (rx_callback) rx_callback(msg);
         handleCommand(msg, sm, policy);
     }
 }
@@ -126,11 +144,13 @@ bool CommBridge::tryParseMessage(McuMessage& msg) {
     if (!validar_mensaje(msg)) {
         // Descartar byte de inicio y reintentar
         rx_tail = (start + 1) % RX_BUF_SIZE;
+        rx_rejected_count++;
         return false;
     }
     
     // Mensaje válido: avanzar tail
     rx_tail = (start + sizeof(McuMessage)) % RX_BUF_SIZE;
+    rx_ok_count++;
     return true;
 }
 

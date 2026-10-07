@@ -27,6 +27,16 @@ uint8_t TripPolicy::maxAttempts() const {
     return n;
 }
 
+uint32_t TripPolicy::cooldownMs() const {
+    // Un enfriamiento de 0 haria que la condición se cumpliera en el
+    // mismo ciclo del trip: RECOVER en cada vuelta del loop de 100 Hz, es
+    // decir re-arm del protector sin ninguna espera. Con la config actual
+    // (60 s) no es alcanzable, pero un 0 aquí por error de tecleo convertiría
+    // la política en un oscilador y machacaría los motores.
+    return cfg_.cooldown_ms < TRIP_MIN_COOLDOWN_MS
+               ? TRIP_MIN_COOLDOWN_MS : cfg_.cooldown_ms;
+}
+
 void TripPolicy::prune(uint32_t now_ms) {
     // Descarta intentos más antiguos que la ventana (compacta in-place).
     uint8_t keep = 0;
@@ -65,7 +75,7 @@ TripDecision TripPolicy::update(uint32_t now_ms, bool trip_now, float amps) {
             return TripDecision::NONE;
         }
         // Still room to retry: open the cooldown for the next re-arm.
-        cooldown_until_ = now_ms + cfg_.cooldown_ms;
+        cooldown_until_ = now_ms + cooldownMs();
         return TripDecision::NONE;
     }
 
@@ -76,13 +86,13 @@ TripDecision TripPolicy::update(uint32_t now_ms, bool trip_now, float amps) {
     // corto): la corriente tiene que estar limpia de verdad.
     if (amps > cfg_.recover_amps) {
         // Re-armar igual perdería la condición: extendemos la espera.
-        cooldown_until_ = now_ms + cfg_.cooldown_ms;
+        cooldown_until_ = now_ms + cooldownMs();
         return TripDecision::NONE;
     }
 
     // RECOVER consume un turno de enfriamiento: evita repetir la decisión
     // en cada ciclo del loop mientras la corriente siga limpia.
-    cooldown_until_ = now_ms + cfg_.cooldown_ms;
+    cooldown_until_ = now_ms + cooldownMs();
     return TripDecision::RECOVER;
 }
 

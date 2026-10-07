@@ -92,6 +92,12 @@ private:
     
     // Modo actual (detectado por hardware)
     bool modo_generador_hw = false;
+    // Endurecimiento por comando remoto (solo puede pasar a true: nadie
+    // declara RED por encima del pin del ATS).
+    bool modo_forzado_gen = false;
+
+    // Modo efectivo = hardware O forzado. El hardware nunca se relaja.
+    bool modoEfectivo() const { return modo_generador_hw || modo_forzado_gen; }
     bool modo_mantenimiento = false;
     bool emergencia_activa = false;
     uint16_t emergencia_codigo = 0;

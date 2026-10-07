@@ -105,7 +105,7 @@
 
 | Señal | Pin MCU | Tipo | Protección HW | Estado cable cortado |
 | --- | --- | --- | --- | --- |
-| Modo ATS | PC0 | Digital, pull-up 10 kΩ | RC 1 kΩ + 100 nF | LOW → **GENERADOR** (restrictivo) |
+| Modo ATS | PC0 | Digital, **pull-up 10 kΩ externo** | RC 1 kΩ + 100 nF | HIGH → **RED** (NO restrictivo, ver nota) |
 | Feedback B1 | PC1 | Digital, pull-down 10 kΩ | RC 1 kΩ + 100 nF | LOW → bomba parada |
 | Feedback B2 | PC2 | Digital, pull-down 10 kΩ | RC 1 kΩ + 100 nF | LOW → bomba parada |
 | Feedback B3 | PC3 | Digital, pull-down 10 kΩ | RC 1 kΩ + 100 nF | LOW → bomba parada |
@@ -115,8 +115,26 @@
 | Orden PLC B2 | PA1 | Digital | RC + clamp | LOW → sin orden |
 | Orden PLC B3 | PA2 | Digital | RC + clamp | LOW → sin orden |
 
-> ⚠️ **Nota de seguridad (ver `docs/hazop_lopa.md` N-02):** el cable cortado de
-> PC0 produce "GENERADOR" (restrictivo, 1 bomba). Es el estado seguro correcto.
+> ⚠️ **CABLE CORTADO EN PC0 = MODO RED. ES FAIL-OPEN.**
+>
+> Con pull-up, un cable cortado deja el pin flotando a HIGH, el firmware lo
+> lee como RED y permite **las 3 bombas**. Una versión anterior de este
+> documento afirmaba lo contrario ("LOW → GENERADOR, restrictivo") y era
+> **incorrecto**: con pull-up el cable cortado nunca da LOW.
+>
+> ¿Por qué importa? El pin del ATS es la única fuente de verdad del límite de
+> bombas. Un cable roto o un contacto sucio deja el sistema en RED con el
+> generador conectado → 2-3 bombas → apagón del DSE. Ya está registrado
+> como **N-02** en `docs/hazop_lopa.md` (L2×S4 = Alto).
+>
+> **Barrera obligatoria:** el pull-up 10 kΩ **externo en PCB** (no solo el
+> interno del MCU) convierte el fallo del pull-up interno en un cable roto
+> detectable, y `mode_detect.cpp` debe tratar un cambio a RED **visto mientras
+> el generador está delivering** como condición a revisar, no como normal.
+>
+> Ningún software arregla esto: un pin flotante a HIGH *es* un nivel
+> eléctrico válido. La única corrección es el pull-up externo y la
+> verificación del contacto en PT-02.
 
 ---
 

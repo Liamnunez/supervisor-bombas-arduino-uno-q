@@ -35,10 +35,27 @@ public:
     // Configuración
     void setRxCallback(void (*cb)(const McuMessage&)) { rx_callback = cb; }
 
+    // --- Diagnostico de la recepcion (telemetria y tests) ---
+    // rx_ok_count solo sube cuando tryParseMessage() assembla un frame con
+    // CRC y encuadre validos. rx_rejected_count, cuando lo descarta.
+    // Sin esto no hay forma de distinguir "llego basura" de "llego bien":
+    // el UART puede quedar vaciado y no haber aceptado nada.
+    uint32_t rxOkCount() const { return rx_ok_count; }
+    uint32_t rxRejectedCount() const { return rx_rejected_count; }
+    uint32_t overflowCount() const { return overflow_count; }
+    void resetCounters() {
+        rx_ok_count = 0;
+        rx_rejected_count = 0;
+        overflow_count = 0;
+    }
+
 private:
     // Buffer RX circular
     static constexpr size_t RX_BUF_SIZE = 256;
     uint8_t rx_buffer[RX_BUF_SIZE];
+    uint32_t overflow_count = 0;
+    uint32_t rx_ok_count = 0;
+    uint32_t rx_rejected_count = 0;
     size_t rx_head = 0;
     size_t rx_tail = 0;
     

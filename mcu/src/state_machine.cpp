@@ -17,6 +17,7 @@ StateMachine::StateMachine()
     , last_heartbeat(0)
     , last_mode_check(0)
     , modo_generador_hw(false)
+    , modo_forzado_gen(false)
     , modo_mantenimiento(false)
     , emergencia_activa(false)
     , emergencia_codigo(0)
@@ -35,9 +36,21 @@ void StateMachine::begin() {
     last_heartbeat = boot_time;
     last_mode_check = boot_time;
     
+    // Configurar el pin del modo AQUÍ y no depender de que otro módulo lo
+    // hiciera antes. Antes solo modeDetect.begin() lo declaraba
+    // INPUT_PULLUP, así que el orden de llamadas en setup() decidía si el
+    // pin quedaba con pull-up o flotando. Un pin de seguridad no puede
+    // depender de un orden de inicialización: si flotara, el modo se
+    // leería al azar.
+    // HIGH = RED, LOW = GENERADOR.
+    pinMode(PIN_MODO_GEN, INPUT_PULLUP);
+
     // Lectura inicial del modo hardware
-    // PIN_MODO_GEN: HIGH = RED, LOW = GENERADOR (pull-up interno)
     modo_generador_hw = !digitalRead(PIN_MODO_GEN);
+    // Un reinicio del MCU no conserva el endurecimiento por comando: se
+    // reevalúa solo desde el pin. Preferimos un arranque permisivo
+    // coordinado con el ATS real a arrancar en un modo que nadie eligió.
+    modo_forzado_gen = false;
     readModoHardware();
     modo_estable = true;
     
@@ -145,12 +158,31 @@ void StateMachine::onPlcOrder(uint8_t bomba_id, bool orden) {
 }
 
 bool StateMachine::setModoGenerador(bool es_generador) {
-    // Solo permite forzar si no hay emergencia activa
     if (emergencia_activa) return false;
-    
-    modo_generador_hw = es_generador;
-    modo_estable = true;
-    modo_debounce_cnt = 0;
+
+    // Un comando remoto puede ENDURECER el modo, nunca relajarlo por
+    // debajo de lo que dice el hardware. Es la regla acordada: el pin del
+    // ATS manda sobre el límite de bombas, y ningún comando -tampoco de
+    // admin- puede declarar RED cuando el cable dice GENERADOR.
+    //
+    // Antes esta función escribía directo en modo_generador_hw y ponía
+    // modo_debounce_cnt = 0, lo que hacía dos cosas malas a la vez:
+    //   1. dejaban 4 ciclos (40 ms) de ventana con las 3 bombas permitidas
+    //   2. repitiendo el comando, el debounce NUNCA alcanzaba 5, así que
+    //      el bypass era permanente con solo ~5 comandos/s
+    //
+    // Ahora el comando vive en modo_forzado_gen, que solo puede pasar a
+    // true. readModoHardware() sigue siendo el único que escribe
+    // modo_generador_hw, con su debounce intacto.
+    if (es_generador) {
+        modo_forzado_gen = true;
+        return true;
+    }
+
+    // Poner RED: solo se acepta si el hardware también dice RED.
+    if (modo_generador_hw) return false;   // rechazo explícito
+
+    modo_forzado_gen = false;              // el pin ya es RED: solo soltar
     return true;
 }
 
@@ -204,7 +236,7 @@ void StateMachine::setMantenimiento(bool activo) {
         transitionTo(SystemState::MANTENIMIENTO);
     } else if (!activo && !emergencia_activa) {
         // Volver al estado según modo hardware
-        transitionTo(modo_generador_hw ? SystemState::GENERADOR : SystemState::NORMAL);
+        transitionTo(modoEfectivo() ? SystemState::GENERADOR : SystemState::NORMAL);
     }
 }
 
@@ -231,8 +263,10 @@ SystemState StateMachine::computeDesiredState() {
     // Prioridad 2: Modo mantenimiento
     if (modo_mantenimiento) return SystemState::MANTENIMIENTO;
     
-    // Prioridad 3: Modo hardware (RED/GENERADOR)
-    return modo_generador_hw ? SystemState::GENERADOR : SystemState::NORMAL;
+    // Prioridad 3: Modo efectivo (hardware RED/GENERADOR, endurecido
+    // por comando si procede). El hardware manda: un comando nunca
+    // puede convertir GENERADOR en RED.
+    return modoEfectivo() ? SystemState::GENERADOR : SystemState::NORMAL;
 }
 
 void StateMachine::handleNormal() {
@@ -308,14 +342,53 @@ void StateMachine::checkFeedbackTimeout() {
             continue;
         }
         
+        // Base de tiempo correcta para CADA caso. Importa:
+        //
+        //  - orden sin retorno (SIF-02): mandamos a arrancar y el
+        //    contacto no confirma. El instante relevante es cuándo hemos
+        //    cerrado el relé -> b.relay_change.
+        //
+        //  - retorno sin orden (SIF-03): el contactor está cerrado cuando
+        //    lo mandamos abierto. El instante relevante es cuándo apareció
+        //    ese retorno o desapareció la orden -> b.last_change.
+        //
+        // Usar relay_change para los dos era un bug latente: con el relé
+        // abierto desde el arranque, relay_change vale 0 y
+        // `now - 0` sale del timeout de inmediato, así que el primer tick
+        // tras arrancar ya parecía un contactor soldado. Era inofensivo
+        // mientras SIF-03 solo hiciera fault_count en esa bomba; al
+        // escalarlo a emergencia global, arrancaba en EMERGENCIA solo.
+        uint32_t base = retorno_sin_orden ? b.last_change : b.relay_change;
+
         // Un SOLO fault por episodio (no incrementar en cada loop 100Hz)
-        if (!b.fault_latched && (now - b.relay_change >= FEEDBACK_TIMEOUT_MS)) {
+        if (!b.fault_latched && (now - base >= FEEDBACK_TIMEOUT_MS)) {
             b.fault_latched = true;
             b.fault_count++;
             if (bomba_event_cb) {
                 bomba_event_cb(i, McuEvent::BOMBA_FAULT);
             }
-            // La bomba queda bloqueada (fault_count > 0) hasta reset de operador
+            // La bomba queda bloqueada (fault_count > 0) hasta reset de
+            // operador
+            //
+            // SIF-02 vs SIF-03: no son lo mismo y no se tratan igual.
+            //
+            // SIF-02 (orden sin retorno): mandamos a arrancar y el
+            // contactor no confirma. La bomba no arranca; las demás siguen
+            // bajo nuestro control. Bloqueo de esa bomba, nada más.
+            //
+            // SIF-03 (retorno sin orden, contactor soldado): el auxiliar
+            // dice que el contactor está cerrado cuando nosotros lo
+            // mandamos abierto. ESA BOMBA YA NO LA CONTROLAMOS. En
+            // GENERADOR, con B1 consumiendo 30 A de un generador de 45 A,
+            // dejar B2 y B3 libres para arrancar lleva a 60 A y al corte
+            // del DSE: bloquear solo la bomba pegada NO cierra el bypass.
+            // Por eso SIF-03 es emergencia global (security_protocols.md
+            // SIF-03) y SIF-02 no.
+            if (retorno_sin_orden && emergencia_codigo == 0) {
+                emergencia_activa = true;
+                emergencia_codigo = ERR_CONTACTOR_PEGADO;
+                transitionTo(SystemState::EMERGENCIA);
+            }
         }
     }
 }
@@ -357,7 +430,9 @@ void StateMachine::printState() const {
     Serial.print("[STATE] Estado: ");
     Serial.print(state_names[static_cast<uint8_t>(current_state)]);
     Serial.print(" | Modo HW: ");
-    Serial.print(modo_generador_hw ? "GEN" : "RED");
+    Serial.print(modoEfectivo() ? "GEN" : "RED");
+    Serial.print(" | Forzado: ");
+    Serial.print(modo_forzado_gen ? "SI" : "NO");
     Serial.print(" | Mantenimiento: ");
     Serial.print(modo_mantenimiento ? "SI" : "NO");
     Serial.print(" | Emergencia: ");
