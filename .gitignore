@@ -5,6 +5,7 @@ test_venv/
 linux/venv/
 
 # Datos en ejecución (telemetría local)
+supervisor_alerts.db
 linux/supervisor_alerts.db
 linux/alerts.db
 linux/audit.log
