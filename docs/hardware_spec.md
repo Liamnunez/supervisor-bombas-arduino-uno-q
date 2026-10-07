@@ -110,7 +110,7 @@
 | Feedback B2 | PC2 | Digital, pull-down 10 kΩ | RC 1 kΩ + 100 nF | LOW → bomba parada |
 | Feedback B3 | PC3 | Digital, pull-down 10 kΩ | RC 1 kΩ + 100 nF | LOW → bomba parada |
 | Nivel | PA4 | ADC 12-bit | 120 Ω shunt + TVS | 0 V → 0 % (fallback) |
-| Corriente | PA5 | ADC 12-bit | Burden + TVS | 0 A → CT fault |
+| Corriente | PA5 | ADC 12-bit (**INPUT_ANALOG**) | Burden + TVS | 0 A → **ambiguo** (ver nota) |
 | Orden PLC B1 | PA0 | Digital | RC + clamp | LOW → sin orden |
 | Orden PLC B2 | PA1 | Digital | RC + clamp | LOW → sin orden |
 | Orden PLC B3 | PA2 | Digital | RC + clamp | LOW → sin orden |
@@ -337,7 +337,7 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 | 2 | Mantener >3 s | Trip: EMERGENCIA activada |
 | 3 | Verificar relés | Todos abiertos |
 | 4 | Verificar dashboard + Telegram | Alerta crítica "SOBRECARGA" |
-| 5 | Reducir corriente, esperar | Re-arm tras 2 s limpios (si sin emergencia) |
+| 5 | Reducir corriente a < 5 A | Re-arm a los **60 s** (enfriamiento + `TRIP_RECOVER_AMPS`) |
 
 **Firma:** _________________ Fecha: _________
 

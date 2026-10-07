@@ -43,6 +43,8 @@ MCU_ERROR_MESSAGES = {
     0x6010: "Aviso: corriente cerca del límite del generador",
     0x6020: "Trip re-armado automáticamente por el supervisor",
     0x6021: "Trip: intentos agotados - REQUIERE RESET DE OPERADOR",
+    0x6004: "SIF-05: sensor de nivel fuera de rango - la lectura NO es "
+            "confiable (las bombas siguen las ordenes del PLC)",
 }
 
 # Nivel de alerta por código. Un re-arm automático es informativo, no crítico:
@@ -53,6 +55,12 @@ MCU_ERROR_LEVELS = {
     0x6010: "warning",
     0x6020: "info",      # trip recuperado solo: normal en generador
 }
+
+
+# Backoff de reconexion del puerto serie (s). Si el USB se desenchufa,
+# el hilo de lectura reabre solo con este backoff creciente.
+RECONNECT_MIN_S = 1.0
+RECONNECT_MAX_S = 30.0
 
 
 class StateManager:
@@ -73,8 +81,9 @@ class StateManager:
         
         # Buffer RX
         self.rx_buffer = bytearray()
+        self.MSG_SIZE = 11
+
         self.MSG_SIZE = 11  # McuMessage size (11 bytes packed)
-        
         # Stats
         self.rx_count = 0
         self.tx_count = 0
@@ -83,15 +92,9 @@ class StateManager:
     
     def start(self) -> bool:
         try:
-            self.serial = serial.Serial(
-                port=self.port,
-                baudrate=self.baudrate,
-                timeout=0.1,  # Non-blocking read
-                write_timeout=1
-            )
-            time.sleep(0.5)  # Wait for Arduino reset
-            self.serial.reset_input_buffer()
-            
+            self.serial = None
+            abierto = self._abrir_puerto()
+
             self.running = True
             self.rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
             self.rx_thread.start()
@@ -102,11 +105,18 @@ class StateManager:
             # Iniciar tarea de running_seconds
             self._start_running_seconds_task()
             
-            # Solicitar estado inicial
-            self.send_command(0x10, 0, 0)  # REQUEST_STATUS
+            # Solicitar estado inicial. No es bloqueante: si el puerto todavia
+            # no esta, lo pedira el hilo de lectura al reconectar.
+            if abierto:
+                try:
+                    self.send_command(McuEvent.STATE_CHANGE, 0, 0)
+                except Exception:
+                    pass
+            else:
+                print("[STATE] Arrancando sin puerto; el hilo reintentara")
             return True
         except Exception as e:
-            print(f"[STATE] Error abriendo puerto {self.port}: {e}")
+            print(f"[STATE] Error arrancando StateManager: {e}")
             return False
     
     def stop(self):
@@ -122,22 +132,75 @@ class StateManager:
             self.rx_thread.join(timeout=2)
         if hasattr(self, '_running_seconds_task'):
             self._running_seconds_task.cancel()
-        if self.serial and self.serial.is_open:
-            self.serial.close()
+        self._cerrar_puerto()
     
+    def _abrir_puerto(self) -> bool:
+        """(Re)abrir el puerto serie. Idempotente si ya esta abierto."""
+        try:
+            self.serial = serial.Serial(
+                port=self.port,
+                baudrate=self.baudrate,
+                timeout=0.1,
+                write_timeout=1
+            )
+            time.sleep(0.5)
+            self.serial.reset_input_buffer()
+            self.rx_buffer.clear()
+            return True
+        except Exception as e:
+            print(f"[STATE] Error abriendo puerto {self.port}: {e}")
+            return False
+
     def _rx_loop(self):
-        while self.running and self.serial and self.serial.is_open:
+        """Lectura con RECONEXION.
+
+        Antes solo capturaba la excepcion y seguia leyendo: si se desenchufaba
+        el USB, `serial.read()` fallaba para siempre en el mismo puerto
+        cerrado y no habia ninguna reconexion. docs/playbooks.md PB-07 decia
+        "el sistema reintenta la conexion" y no lo hacia.
+
+        Aqui, ante un SerialException o un puerto cerrado, se intenta reabrir
+        con backoff. Si tampoco se puede, se reintenta: la planta puede
+        quedarse horas sin el cable de supervision y hay que recuperarlo solo
+        cuando vuelva.
+        """
+        backoff = RECONNECT_MIN_S
+        while self.running:
+            if self.serial is None or not self.serial.is_open:
+                if self._abrir_puerto():
+                    backoff = RECONNECT_MIN_S
+                    # Al reabrir, pedir estado: la planta puede haber
+                    # cambiado durante el corte.
+                    try:
+                        self.send_command(McuEvent.STATE_CHANGE, 0, 0)
+                    except Exception:
+                        pass
+                else:
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, RECONNECT_MAX_S)
+                continue
             try:
                 data = self.serial.read(64)
                 if data:
                     self.rx_buffer.extend(data)
                     self._process_buffer()
-            except serial.SerialException as e:
-                print(f"[STATE] Error serial: {e}")
-                time.sleep(1)
+            except (serial.SerialException, OSError) as e:
+                print(f"[STATE] Puerto perdido ({e}); reintentando en "
+                      f"{backoff:.0f}s")
+                self._cerrar_puerto()
+                time.sleep(backoff)
+                backoff = min(backoff * 2, RECONNECT_MAX_S)
             except Exception as e:
                 print(f"[STATE] Error inesperado: {e}")
                 time.sleep(0.1)
+
+    def _cerrar_puerto(self):
+        try:
+            if self.serial and self.serial.is_open:
+                self.serial.close()
+        except Exception:
+            pass
+        self.serial = None
     
     def _process_buffer(self):
         while len(self.rx_buffer) >= self.MSG_SIZE:
@@ -342,9 +405,19 @@ class StateManager:
         return self.send_command(0xFF, 0xFF, 0xFFFF)
     
     def request_status(self) -> bool:
-        # No hay opcode específico para request status en firmware;
-        # se puede usar HEARTBEAT request o similar. De momento no-op.
-        return True
+        """Pide estado al MCU.
+
+        No hay opcode dedicado, pero HEARTBEAT (0x50) es lo que el firmware
+        usa para mandar su estado y no tiene efecto de comando: activarlo
+        fuerza una respuesta inmediata en vez de esperar al siguiente
+        segundo. Antes esto era un no-op que devolvia True, y main.py lo
+        llamaba "cada 30 s" creyendo que sondeaba el MCU.
+        """
+        try:
+            return self.send_command(McuEvent.HEARTBEAT, 0, 0)
+        except Exception as e:
+            print(f"[STATE] request_status fallo: {e}")
+            return False
     
     def get_stats(self) -> dict:
         return {

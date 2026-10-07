@@ -386,6 +386,32 @@ void loop() {
             currentProtector.rearm();
         }
 
+        // --- SIF-05: sensor de nivel fuera de rango ---
+        // Se AVISA pero NO se paran las bombas, y esa es una decisión
+        // deliberada: si el sensor falla con el pozo llenándose, parar las
+        // bombas empeora el problema. El peor resultado posible aquí es
+        // desbordar el pozo, que es menos grave que el apagón del
+        // generador que sí evitan el resto de las SIF.
+        //
+        // security_protocols.md decía "Alerta + safe state" sin definir qué
+        // era ese safe state. La definición honesta es DEGRADADO: las
+        // bombas siguen las órdenes del PLC (que es quien decide por nivel)
+        // y el operador recibe un crítico de que la lectura no es de fiar.
+        static bool nivel_sano_antes = true;
+        if (sensorLevel.isValid() != nivel_sano_antes) {
+            nivel_sano_antes = sensorLevel.isValid();
+            if (!nivel_sano_antes) {
+                stateMachine.setNivelSensorFallo(true);
+                commBridge.sendError(ERR_SENSOR_NIVEL);
+                Serial.println("[SIF05] Sensor de nivel fuera de rango "
+                              "(3.5-21mA): lectura NO confiable, bombas "
+                              "siguen las ordenes del PLC");
+            } else {
+                stateMachine.setNivelSensorFallo(false);
+                Serial.println("[SIF05] Sensor de nivel recuperado");
+            }
+        }
+
         // Comunicación MCU <-> Linux
         commBridge.update(stateMachine, sensorLevel.getNivelPorcentaje());
 

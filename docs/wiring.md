@@ -14,7 +14,9 @@
 | Feedback B1 | PC1 | D4 | Entrada - Retorno aux B1 (pull-down) |
 | Feedback B2 | PC2 | D5 | Entrada - Retorno aux B2 (pull-down) |
 | Feedback B3 | PC3 | D6 | Entrada - Retorno aux B3 (pull-down) |
-| Nivel ADC | PA4 | A4 | ADC - Sensor 4-20mA (divisor) |
+| Nivel ADC | PA4 | A4 | ADC - Sensor 4-20mA (INPUT_ANALOG) |
+| Corriente ADC | PA5 | A5 | ADC - CT propio del generador, SIF-04 (INPUT_ANALOG) |
+| Latido PNOZ | PB3 | - | Salida - Latido al relé de seguridad PNOZ s4, SIF-06 |
 | UART TX | PA9 | D7 | TX -> Linux RX |
 | UART RX | PA10 | D8 | RX <- Linux TX |
 | LED OK | PB13 | D13 | Verde - Sistema OK |
@@ -93,7 +95,7 @@ Sensor 4-20mA ──────[120Ω]────── GND
 MCU UART1 (PA9/PA10) ──────── Linux /dev/ttyACM0
 115200 8N1
 
-Protocolo: 12 bytes binarios
+Protocolo: 11 bytes binarios
 [0xAA][TYPE][BOMBA_ID][TIMESTAMP][PAYLOAD][CRC8][0x55]
 ```
 

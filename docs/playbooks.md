@@ -118,12 +118,21 @@ esperar no añade seguridad, solo evita 3 arranques en 2 minutos.
 **Reset (solo R2/R3, con token `operator` o `admin`):**
 
 ```bash
+# Rota dedicada. Acepta el "motivo" y lo escribe en el audit log JSONL,
+# que es lo que permite reconstruir la intervencion meses despues.
 curl -X POST https://<host>/api/mcu/reset_emergencia \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"motivo":"trip x3 - revisar CT y contactores"}'
 ```
 
+> El campo `motivo` no es obligatorio para que el comando funcione (puede ser
+> una parada rápida), pero **siempre queda registrado**, incluso vacío.
+>
+> Alternativa genérica: `POST /api/command` con
+> `{"command":"reset_emergencia","motivo":"..."}`.
+
+---
 > El `motivo` queda en el audit log JSONL y es lo que permite reconstruir
 > qué pasó tres meses después.
 >
@@ -239,8 +248,12 @@ Se trata como PB-05 (MCU/circuito) pero se escala a R4 y R5.
 
 **Disparador:** no llega heartbeat del MCU durante > 12 s.
 
-**Qué hace el sistema:** reintenta la conexión. El MCU sigue funcionando
-independientemente de que Linux esté o no.
+**Qué hace el sistema:** el hilo de lectura reabre el puerto serie con
+backoff creciente (1 s → 30 s) y, al recuperar, pide el estado al MCU. Antes
+solo capturaba la excepción y seguía leyendo un puerto cerrado para siempre.
+
+El MCU sigue funcionando independientemente de que Linux esté o no: la
+seguridad no depende de la telemetría.
 
 **Este es el principio de la arquitectura:** la seguridad no depende de la
 telemetría. Si cae el servidor, las bombas siguen bajo el control del

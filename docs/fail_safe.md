@@ -108,9 +108,15 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 
 ```text
 1. MCU boot ~2s
-2. Durante boot: pines en HIGH-Z → Pull-up/pull-down definen estado
-   - Relés: pull-down interno o externo → ABIERTOS
-   - Modo: pull-up PC0 → RED (conservador)
+2. Durante boot: los pines de relé quedan en el estado del reset del MCU
+   (INPUT, alta impedancia) hasta que setup() los pone a OUTPUT LOW
+   - Relés: NO hay pull-down configurado en PB0/PB1/PB2. El fail-safe de
+     esta fase es el resorte del propio relé más el PNOZ s4 (SIF-06), que
+     abre sus salidas mientras no llegue el latido. NO es el pull-down del
+     pin: main.cpp:setup() pone los tres relés a OUTPUT LOW en las primeras
+     líneas, antes de tocar nada más.
+   - Modo: pull-up PC0 → HIGH → RED (permisivo, NO conservador; ver N-02
+     en hazop_lopa.md: cable cortado = fail-open)
 3. setup(): pins modo OUTPUT, write LOW → Relés confirman ABIERTOS
 4. begin(): Lee modo HW, estado inicial = según HW
 5. Loop normal en <3s
@@ -123,10 +129,14 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 1. Feedback B1 = 0 (pull-down)
 2. PLC ordena B1=1 → Relé cierra → Contactor cierra
 3. Feedback sigue en 0 (cable cortado)
-4. Tras 2s: FEEDBACK_TIMEOUT → fault_count++
-5. EMERGENCIA activada → Todos relés abren
-6. Bomba 1 para (contactor abre por relé abierto)
-7. Sistema seguro, requiere reset manual
+4. Tras 2s: FEEDBACK_TIMEOUT → fault_count++ para B1 (SIF-02)
+5. B1 queda bloqueada por puedeArrancar() → su relé abre → contactor abre
+6. B2 y B3 SIGUEN disponibles: el sistema es autónomo y sigue bombeando
+7. Requiere reset de operador para liberar B1 (clearFaults)
+
+Esto NO es una emergencia global. SIF-02 bloquea la bomba afectada; solo
+SIF-03 (contactor soldado: retorno sin orden nuestra) escala a
+EMERGENCIA, porque esa bomba ya no la controlamos.
 ```
 
 ---
@@ -153,9 +163,10 @@ Esto se logra mediante relés **normally open (NO) con retorno por muelle**:
 - [ ] Desconectar feedback B1
 - [ ] PLC ordena B1
 - [ ] Esperar 2.5s
-- [ ] Verificar: EMERGENCIA activada, todos relés abren
-- [ ] Verificar: Alerta en dashboard
-- [ ] Reset emergencia → Verificar recuperación
+- [ ] Verificar: B1 bloqueada (su relé abre) y **B2/B3 siguen disponibles**
+- [ ] Verificar: Alerta BOMBA_FAULT (0x22) con bomba_id=0 en el dashboard
+- [ ] Verificar: NO hay emergencia global (eso sería SIF-03)
+- [ ] Reset de operador → Verificar que B1 vuelve a estar disponible
 
 ### Test 4: Mismatch (Contactor Pegado)
 

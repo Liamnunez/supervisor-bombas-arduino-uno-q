@@ -60,6 +60,12 @@ public:
     
     // Solicitar modo mantenimiento
     void setMantenimiento(bool activo);
+
+    // SIF-05: el sensor de nivel no es creible. NO para las bombas (seria
+    // peor que el fallo del sensor), solo se marca para telemetria y para
+    // que printState() lo muestre.
+    void setNivelSensorFallo(bool fallo) { nivel_sensor_fallo = fallo; }
+    bool nivelSensorFallo() const { return nivel_sensor_fallo; }
     
     // Callbacks para notificar cambios
     using StateChangeCallback = void (*)(SystemState nuevo, SystemState anterior);
@@ -102,6 +108,7 @@ private:
     bool emergencia_activa = false;
     uint16_t emergencia_codigo = 0;
     uint8_t trip_attempts = 0;      // intentos de trip en la ventana
+    bool nivel_sensor_fallo = false; // SIF-05
     
     // Callbacks
     StateChangeCallback state_change_cb = nullptr;

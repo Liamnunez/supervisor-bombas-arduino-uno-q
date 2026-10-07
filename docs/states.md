@@ -182,17 +182,36 @@ PRIORIDAD 4: FAULT INDIVIDUAL POR BOMBA
 
 ## Códigos de Error (Emergencia)
 
-| Código | Descripción |
+Estos son los códigos **reales**, los que emite `mcu/include/config.h` y
+mapea `MCU_ERROR_MESSAGES` en `linux/app/state.py`. La tabla anterior de
+este documento (0x0001..0x8000) no coincidía con **ninguno** de ellos.
+
+| Código | Descripción | Nivel de alerta |
+| --- | --- | --- |
+| 0x6001 | Trip por sobrecarga del generador | warning |
+| 0x6002 | Corriente con relés abiertos: contactor pegado | critical |
+| 0x6003 | Sensor de corriente (CT) fuera de rango | critical |
+| 0x6004 | SIF-05: sensor de nivel fuera de rango (3.5-21 mA) | critical |
+| 0x6010 | Aviso: corriente cerca del límite | warning |
+| 0x6020 | Trip re-armado automáticamente | info |
+| 0x6021 | Trip: intentos agotados, **exige operador** | critical |
+
+Además:
+
+| Valor | Descripción |
 | --- | --- |
-| 0x0001 | Feedback timeout Bomba 1 |
-| 0x0002 | Feedback timeout Bomba 2 |
-| 0x0003 | Feedback timeout Bomba 3 |
-| 0x0010 | Contactor pegado Bomba 1 |
-| 0x0020 | Contactor pegado Bomba 2 |
-| 0x0030 | Contactor pegado Bomba 3 |
-| 0x0100 | Sensor nivel desconectado |
-| 0x0200 | Sensor nivel fuera rango |
-| 0x0400 | Watchdog MCU |
-| 0x0800 | Comunicación MCU-Linux perdida |
-| 0x1000 | Comando emergencia remota |
-| 0x8000 | Múltiples fallos simultáneos |
+| `0xFF` + payload `0xFFFF` | Comando de reset de emergencia desde Linux |
+| `0xFF` + payload `0xFF00` | `trigger_emergencia` con código por defecto |
+| `0x22` (`BOMBA_FAULT`) | Fault de feedback de una bomba concreta, con su `bomba_id` |
+
+> El fault de feedback **no tiene código 0x6xxx propio**: viaja como evento
+> `BOMBA_FAULT` (0x22) y bloquea esa bomba. Solo SIF-03 (contactor soldado)
+> escala a emergencia global, con `ERR_CONTACTOR_PEGADO` (0x6002).
+
+| Código retirado | Por qué |
+| --- | --- |
+| 0x0001-0x0003, 0x0010-0x0030 | El fault de bomba viaja como evento con `bomba_id`, no como código por bomba |
+| 0x0100, 0x0200 | El sensor de nivel usa 0x6004 |
+| 0x0400 | El watchdog no emite código: reinicia el MCU (IWDG) y el PNOZ abre los relés |
+| 0x0800 | La pérdida de comunicación la detecta **Linux**, no el MCU: `AlertManager.check_silence()`, alerta `source="MCU"` con `codigo=0x50` |
+| 0x1000, 0x8000 | No existen |

@@ -283,10 +283,19 @@ def test_send_command_trigger_emergencia(sm):
     assert struct.unpack("<H", f[7:9])[0] == ((0xFF00 & 0xFF) << 8) | 2
 
 
-def test_request_status_no_crea_frame(sm):
-    # state.py:316-319 -> request_status es un no-op explícito
+def test_request_status_pide_estado_con_heartbeat(sm):
+    """request_status() ahora pide estado de verdad.
+
+    Era un no-op que devolvia True, y main.py lo llamaba "cada 30 s"
+    creyendo que sondeaba el MCU. Ahora envia un frame HEARTBEAT (0x50),
+    que no tiene efecto de comando pero fuerza respuesta inmediata.
+    """
     assert sm.request_status() is True
-    assert sm.serial.escrito == []
+    assert len(sm.serial.escrito) == 1
+    f = sm.serial.escrito[0]
+    assert f[0] == 0xAA
+    assert f[1] == 0x50, f"esperaba HEARTBEAT, vino {f[1]:#04x}"
+    assert sm._validate_crc(bytes(f)) is True
 
 
 def test_send_command_sin_puerto_devuelve_false():

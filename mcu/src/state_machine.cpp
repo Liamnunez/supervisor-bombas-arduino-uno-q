@@ -281,21 +281,30 @@ void StateMachine::handleGenerador() {
 
 void StateMachine::handleEmergencia() {
     // Emergencia: todos los relés abiertos (hecho en updateBombas)
-    // Parpadeo LED fault
+    // Parpadeo LED fault.
+    //
+    // Antes invertia con !digitalRead(pin): digitalRead sobre un pin
+    // configurado como OUTPUT devuelve el nivel del pad de salida, que no
+    // es necesariamente el del latch de salida, y en cualquier caso es
+    // una lectura para saber un estado que ya tenemos. Con estado propio.
     static uint32_t last_blink = 0;
+    static bool led_encendido = false;
     if (millis() - last_blink >= 200) {
         last_blink = millis();
-        digitalWrite(PIN_LED_FAULT, !digitalRead(PIN_LED_FAULT));
+        led_encendido = !led_encendido;
+        digitalWrite(PIN_LED_FAULT, led_encendido ? HIGH : LOW);
     }
 }
 
 void StateMachine::handleMantenimiento() {
     // Mantenimiento: todos los relés abiertos
-    // LED OK parpadea lento
+    // LED OK parpadea lento (estado propio, ver handleEmergencia)
     static uint32_t last_blink = 0;
+    static bool led_encendido = false;
     if (millis() - last_blink >= 1000) {
         last_blink = millis();
-        digitalWrite(PIN_LED_OK, !digitalRead(PIN_LED_OK));
+        led_encendido = !led_encendido;
+        digitalWrite(PIN_LED_OK, led_encendido ? HIGH : LOW);
     }
 }
 
@@ -440,7 +449,9 @@ void StateMachine::printState() const {
     Serial.print(" | Trip: ");
     Serial.print(trip_attempts);
     Serial.print("/");
-    Serial.println(TRIP_MAX_ATTEMPTS);
+    Serial.print(TRIP_MAX_ATTEMPTS);
+    Serial.print(" | Nivel: ");
+    Serial.println(nivel_sensor_fallo ? "NO CONFIABLE" : "OK");
     
     for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
         Serial.print("  B");

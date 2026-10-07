@@ -62,14 +62,14 @@
 - **173 native C++** (trip_policy: ciclo de 3 intentos, edge vs estado, ventana de 15 min, cooldown, operatorReset, overflow guard)
 - **83 native C++** (fw_image: bounds, anti-rollback, CRC/SHA-256, shortcuts, fail-closed sin backend)
 - **112 native C++** (boot_slot + self_test: A/B, rollback, activación local, auto-test)
-- **50 pytest** (incluye test_error_codes.py: semántica 0x6020/0x6021)
-- **Todos pasan**: 441/441 ✅
+- **174 pytest** (error_codes, wire protocol, RBAC adversarial, auditoria_fixes, app_arranca)
+- **Todos pasan**: 1834/1834 ✅
 
 ### 🐳 Docker & CI
 - `docker-compose.yml` (prod) + `docker-compose.dev.yml` (dev con live reload)
 - `linux/Dockerfile` multi-stage (builder → runtime, non-root)
 - GitHub Actions CI: test, lint (pylint/cppcheck/markdownlint), firmware-syntax, build-docs
-- Tests locales: `make tests` → 441/441 ✅
+- Tests locales: `make tests` → 1834/1834 ✅
 
 ---
 
@@ -155,7 +155,9 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 | 5b | Política de trip auto-recuperación ×3/15min | `19efa47` |
 | 4 | `fw_image` + `boot_slot` + `self_test` + `ota_procedure.md` | `d662261` |
 | 4b | `tools/sign_firmware.py` + job CI `firmware-sign` | pendiente |
-| 6 | `operator_manual.md` + `competencies.md` + `training_plan.md` | pendiente |
+| 6 | `operator_manual.md` + `competencies.md` + `training_plan.md` | `e54f9f4` |
+| 6b | Auditoria adversaria: 7 bugs (5 criticos) | `f177ffe` |
+| 6c | Auditoria docs<->codigo: 29 hallazgos, 5 criticos | `89a8733` |
 
 ---
 
@@ -191,7 +193,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 | Job | Último Estado | Commit |
 |-----|---------------|--------|
-| **test** | ✅ Local 441/441 | pendiente push |
+| **test** | ✅ Local 1834/1834 | pendiente push |
 | **lint** | ✅ docs nuevos markdownlint-clean | pendiente push |
 | **firmware-syntax** | ✅ verificado con stub CI | pendiente push |
 | **build-docs** | ✅ | pendiente push |
@@ -204,7 +206,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 ```bash
 # Tests
-make tests              # 441 tests (50 pytest + 391 native C++)
+make tests              # 1834 tests (174 pytest + 1660 native C++)
 make tests-py           # Solo pytest
 make tests-native       # Solo native C++
 

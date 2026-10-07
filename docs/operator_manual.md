@@ -102,12 +102,21 @@ ningún botón para cambiarlo.
 5. Si no está claro → **no resetees**, avisa a R4 (eléctrico).
 
 ```bash
+# Rota dedicada. Acepta el "motivo" y lo escribe en el audit log JSONL,
+# que es lo que permite reconstruir la intervencion meses despues.
 curl -X POST https://<host>/api/mcu/reset_emergencia \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"motivo":"trip x3 - revisar CT y contactores"}'
 ```
 
+> El campo `motivo` no es obligatorio para que el comando funcione (puede ser
+> una parada rápida), pero **siempre queda registrado**, incluso vacío.
+>
+> Alternativa genérica: `POST /api/command` con
+> `{"command":"reset_emergencia","motivo":"..."}`.
+
+---
 > **El campo `motivo` es lo más importante del procedimiento.** Lo que no
 > se escribe, tres meses después no existe.
 

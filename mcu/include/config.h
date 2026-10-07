@@ -145,6 +145,7 @@
 #define ERR_AVISO_SOBRECARGA 0x6010  // Aviso proximidad al límite
 #define ERR_TRIP_AUTO_RECOVER 0x6020  // Re-arm automático tras trip
 #define ERR_TRIP_LATCH       0x6021  // Intentos agotados: exige operador
+#define ERR_SENSOR_NIVEL     0x6004  // Sensor de nivel fuera de rango (SIF-05)
 
 // --- Estados del Sistema ---
 enum class SystemState : uint8_t {

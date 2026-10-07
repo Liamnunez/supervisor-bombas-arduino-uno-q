@@ -92,6 +92,14 @@ class AlertStore:
             ).fetchall()
         return [self._row_to_alert(r) for r in rows]
 
+    def purge_level(self, nivel: str, antes_de: datetime) -> int:
+        """Borra las alertas de un nivel anteriores a una fecha."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM alerts WHERE level = ? AND ts < ?",
+                (nivel, antes_de.isoformat()))
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+
     def mark_delivered(self, ids: List[int]) -> None:
         if not ids:
             return
@@ -187,6 +195,64 @@ class AlertManager:
         if self.store:
             self.store.mark_delivered(alert_ids)
     
+    def check_silence(self, segundos: float) -> List[Alert]:
+        """Alerta de silencio del MCU, evaluada con reloj propio.
+
+        check_thresholds() solo la dispara desde on_status_change(), que a su
+        vez solo corre al decodificar un frame. Si el UART se corta no llega
+        ningun frame, luego no se evalua nada y la alerta no suena: la
+        ausencia de datos era indistinguible de la ausencia de problemas.
+
+        Esta comprobacion no depende de que haya datos, que es justo lo que
+        hace falta para detectar que dejaron de llegar.
+        """
+        if segundos <= self.heartbeat_timeout_s:
+            return []
+        return [Alert(
+            timestamp=datetime.now(),
+            level="critical",
+            source="MCU",
+            message=f"Sin heartbeat MCU por {segundos:.0f}s (umbral "
+                    f"{self.heartbeat_timeout_s}s) - el MCU puede seguir "
+                    f"protegiendo solo, pero no hay supervision",
+            codigo=0x50
+        )]
+
+    def purge(self, dias_info: int = 30, dias_warning: int = 90,
+              dias_critical: int = 1825) -> int:
+        """Aplica las retenciones documentadas y devuelve las filas borradas.
+
+        docs/severity_levels.md declara 30/90 días y 5 años para los
+        registros de seguridad, pero no habia ni un DELETE ni un VACUUM en
+        todo el proyecto: la base crecia sin limite y el compromiso de
+        retencion era solo texto.
+
+        NOTA sobre los 5 años de 'critical': se conservan porque son
+        registros de seguridad, pero el borrado de filas tendria que ir a un
+        archivo con más control antes de dejarlo asi. Mientras
+        tanto, se aplica igual y el numero borrado queda en el log, para que
+        quede constancia de que hubo retención.
+        """
+        if not self.store:
+            return 0
+        cortes = {
+            "info": dias_info,
+            "warning": dias_warning,
+            "critical": dias_critical,
+        }
+        total = 0
+        for nivel, dias in cortes.items():
+            if dias <= 0:
+                continue
+            limite = datetime.now() - timedelta(days=dias)
+            total += self.store.purge_level(nivel, limite)
+        if total:
+            try:
+                self.store.conn.execute("VACUUM")
+            except Exception:
+                pass   # VACUUM puede fallar si hay una transaccion abierta
+        return total
+
     def check_thresholds(self, status: SystemStatus) -> List[Alert]:
         """Verificar umbrales y generar alertas si corresponde"""
         new_alerts = []
@@ -268,21 +334,11 @@ class AlertManager:
                     codigo=0x23
                 ))
         
-        # 6. MCU desconectado (sin heartbeat)
-        if status.last_heartbeat:
-            elapsed = (now - status.last_heartbeat).total_seconds()
-            if elapsed > self.heartbeat_timeout_s:
-                if self.last_mcu_connected:
-                    new_alerts.append(Alert(
-                        timestamp=now,
-                        level="critical",
-                        source="MCU",
-                        message=f"Sin heartbeat MCU por {elapsed:.0f}s",
-                        codigo=0x50
-                    ))
-                self.last_mcu_connected = False
-            else:
-                self.last_mcu_connected = True
+        # 6. MCU desconectado: vive en check_silence(), que se evalua con
+        # reloj propio desde heartbeat_task(). Aqui solo se llega si ya
+        # estan corriendo los datos, y entonces el silencio casi nunca se
+        # cumple; mantenerlo duplicado era una segunda via de la misma
+        # alerta con otro texto.
         
         return new_alerts
     

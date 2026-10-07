@@ -44,8 +44,9 @@ import csv
 import io
 import json
 import os
+import time
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Set
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
@@ -55,7 +56,7 @@ from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
 from .state import StateManager
-from .models import SystemStatus, Alert, SystemState, McuCommand
+from .models import SystemStatus, Alert, SystemState
 from .alerts import AlertManager
 from .auth import AuthManager, COMMAND_REQUIRED_ROLE
 from .telegram_bot import create_bot_from_env, TelegramBot
@@ -261,9 +262,57 @@ app.openapi = custom_openapi
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+
+# ============================================================
+# Rate limiting de comandos
+# ============================================================
+# security_protocols.md promete "10 req/min por IP". Sin esto, un token
+# admin (o un atacante con el) puede martillear /api/command en bucle: cada
+# iteracion reenvia un frame por el UART al MCU.
+#
+# Fail-closed en cuanto a la seguridad: si se supera el limite, el comando se
+# RECHAZA con 429. Nunca se degrada a "permitir y avisar".
+COMMAND_RATE_LIMIT = 10        # comandos por ventana
+COMMAND_RATE_WINDOW_S = 60     # ventana en segundos
+
+_rate_hits: dict = {}
+
+
+def _rate_key(role: str, request: Request) -> str:
+    """Identidad para el limitador: token primero, IP como respaldo.
+
+    Limitar por IP seria insuficiente: varias personas pueden salir por la
+    misma NAT de planta, y el token es lo que realmente autoriza.
+    """
+    ip = request.client.host if request.client else "desconocida"
+    return f"{role}@{ip}"
+
+
+def _rate_exceeded(key: str) -> bool:
+    ahora = time.monotonic()
+    aciertos = [t for t in _rate_hits.get(key, []) if ahora - t < COMMAND_RATE_WINDOW_S]
+    if len(aciertos) >= COMMAND_RATE_LIMIT:
+        _rate_hits[key] = aciertos
+        return True
+    aciertos.append(ahora)
+    _rate_hits[key] = aciertos
+    return False
+
+
+def _audit_extra(req: "CommandRequest") -> str:
+    """Anade el motivo al texto de auditoria, si el comando lo trae."""
+    motivo = (getattr(req, "motivo", None) or "").strip()
+    return f" motivo={motivo}" if motivo else ""
+
+
 class CommandRequest(BaseModel):
     command: str  # "set_modo_generador", "set_mantenimiento", "trigger_emergencia", "reset_emergencia"
     params: dict = {}
+    # Motivo de la intervencion. docs/operator_manual.md lo llama "lo mas
+    # importante del procedimiento" y lo prometen los playbooks, pero pydantic
+    # lo descartaba en silencio y el audit log guardaba un texto fijo. Tres
+    # meses despues no habia forma de saber por que se reseteo.
+    motivo: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -290,10 +339,23 @@ async def login(req: LoginRequest):
 
 
 async def heartbeat_task():
-    """Enviar heartbeat periodico a WebSockets y solicitar estado al MCU"""
+    """Enviar heartbeat periodico a WebSockets y VIGILAR la conexion.
+
+    La vigilancia va aqui y no solo en on_status_change() a proposito.
+    check_thresholds() solo se ejecutaba desde ese callback, y ese callback
+    solo dispara al decodificar un frame del MCU: si se cortaba el UART no
+    llegaba ningún frame, luego no se evaluaba ningún umbral y la alerta de
+    "sin heartbeat" no sonaba nunca. La "Capa 3" del diagrama de
+    seguridad dependia, ironicamente, de que siguieran llegando datos.
+
+    Este bucle corre con reloj propio, asi que detecta la perdida aunque no
+    haya datos - que es justo el caso que hay que detectar.
+    """
+    ultimo_aviso_mcu = None
+    visto_mcu = False
     while True:
         await asyncio.sleep(5)
-        
+
         # Broadcast estado actual
         if active_websockets:
             data = {
@@ -303,10 +365,42 @@ async def heartbeat_task():
                 "stats": state_manager.get_stats()
             }
             await broadcast(json.dumps(data))
-        
-        # Solicitar estado al MCU cada 30s
+
+        # Pedir estado al MCU cada 30s. request_status() envia un frame
+        # HEARTBEAT-ish; el firmware lo ignora (STATE_CHANGE solo actúa para
+        # estados 2 y 3), pero mantiene el enlace vivo y hace que RX/CRC
+        # siganviendose exercising en el dashboard.
         if datetime.now().second % 30 == 0:
             state_manager.request_status()
+
+        # Retencion documentada en severity_levels.md (30/90 dias, 5 años
+        # para registros de seguridad). Antes no habia ni un DELETE.
+        if ahora.minute % 60 == 0 and ahora.second < 10:
+            borradas = alert_manager.purge()
+            if borradas:
+                print(f"[API] Retencion: {borradas} alertas purgadas")
+
+        # --- Vigilancia de la conexion (independiente de los datos) ---
+        ahora = datetime.now()
+        if state_manager.status.last_heartbeat:
+            visto_mcu = True
+            ultimo_aviso_mcu = None
+        elif visto_mcu and ultimo_aviso_mcu is None:
+            # Se escuchaba y dejo de escucharse: separar "nunca ha
+            # hablado" de "ha callado" importa, porque lo primero lo cubre
+            # el aviso de arranque y lo segundo necesita a alguien.
+            ultimo_aviso_mcu = ahora
+
+        if visto_mcu and ultimo_aviso_mcu is not None:
+            silencio = (ahora - state_manager.status.last_heartbeat).total_seconds() \
+                if state_manager.status.last_heartbeat else (ahora - ultimo_aviso_mcu).total_seconds()
+            if silencio > alert_manager.heartbeat_timeout_s:
+                for alert in alert_manager.check_silence(silencio):
+                    on_alert(alert)
+                # No reavisar cada 5 s: se rearma el reloj para que el dedup de
+                # la store pueda absorberlo sin ensuciar el registro.
+                ultimo_aviso_mcu = ahora - timedelta(
+                    seconds=alert_manager.heartbeat_timeout_s)
 
 
 def on_status_change(status: SystemStatus):
@@ -580,6 +674,46 @@ async def reset_maintenance(bomba_id: int, tipo: str, request: Request = None):
     return {"success": True, "message": f"Mantenimiento {tipo} reseteado para bomba {bomba_id+1}"}
 
 
+class ResetEmergenciaRequest(BaseModel):
+    """Cuerpo de POST /api/mcu/reset_emergencia."""
+    motivo: Optional[str] = None
+
+
+@app.post("/api/mcu/reset_emergencia", tags=["comandos"])
+async def reset_emergencia_mcu(req: ResetEmergenciaRequest, request: Request):
+    """Reset de emergencia con motivo obligatorio en el registro.
+
+    Es la ruta que citan docs/playbooks.md PB-03 y docs/operator_manual.md.
+    Antes solo existia POST /api/command, asi que el procedimiento documentado
+    devolvia 404 y el motivo nunca se guardaba.
+
+    El motivo no es obligatorio para el comando (podia ser una parada rapida)
+    pero si queda registrado siempre, incluso vacio, porque un reset sin
+    explicacion es exactamente el caso que hay que poder reconstruir.
+    """
+    role = auth_manager.verify(extract_token(request))
+    if role is None:
+        auth_manager.audit("reset_emergencia", None, False, "sin token valido")
+        raise HTTPException(401, "Autenticacion requerida")
+    if not auth_manager.authorize(role, "reset_emergencia"):
+        auth_manager.audit("reset_emergencia", role, False, "rol insuficiente")
+        raise HTTPException(403, f"Rol '{role}' no tiene permiso para reset_emergencia")
+
+    success = state_manager.reset_emergencia()
+    motivo = (req.motivo or "").strip()
+    detalle = f"reset_emergencia: {motivo}" if motivo else "reset_emergencia: SIN MOTIVO"
+    auth_manager.audit("reset_emergencia", role, success, detalle)
+    await broadcast(json.dumps({
+        "type": "command_result",
+        "command": "reset_emergencia",
+        "success": success,
+        "motivo": motivo or None,
+    }))
+    if not success:
+        raise HTTPException(502, "El MCU no confirmo el reset")
+    return {"success": True, "motivo": motivo or None}
+
+
 @app.post("/api/command", tags=["comandos"])
 async def send_command(req: CommandRequest, request: Request):
     # 1. Autenticacion (fail-closed: sin token valido, nada se ejecuta)
@@ -588,7 +722,16 @@ async def send_command(req: CommandRequest, request: Request):
         auth_manager.audit(req.command, None, False, "sin token valido")
         raise HTTPException(401, "Autenticacion requerida")
 
-    # 2. Comando conocido
+    # 2. Rate limiting (antes de gastar trabajo en el resto)
+    key = _rate_key(role, request)
+    if _rate_exceeded(key):
+        auth_manager.audit(req.command, role, False,
+                          f"rate limit: >{COMMAND_RATE_LIMIT}/{COMMAND_RATE_WINDOW_S}s")
+        raise HTTPException(429,
+                            f"Demasiados comandos (max {COMMAND_RATE_LIMIT} "
+                            f"en {COMMAND_RATE_WINDOW_S}s)")
+
+    # 3. Comando conocido
     if req.command not in COMMAND_REQUIRED_ROLE:
         auth_manager.audit(req.command, role, False, "comando desconocido")
         raise HTTPException(400, f"Comando desconocido: {req.command}")
@@ -625,7 +768,7 @@ async def send_command(req: CommandRequest, request: Request):
         message = "Estado solicitado"
 
     # 4. Audit de la ejecucion
-    auth_manager.audit(req.command, role, success, message)
+    auth_manager.audit(req.command, role, success, message + _audit_extra(req))
 
     return {"success": success, "message": message}
 
