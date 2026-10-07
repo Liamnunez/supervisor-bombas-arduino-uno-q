@@ -16,6 +16,7 @@
 #include "comm_bridge.h"
 #include "sensor_current.h"
 #include "current_protector.h"
+#include "pnoz_heartbeat.h"
 
 // Instancias globales
 StateMachine stateMachine;
@@ -46,7 +47,11 @@ CurrentProtector currentProtector = makeProtector();
 
 // Timing
 uint32_t last_loop_time = 0;
+uint32_t last_block_time = 0;
 const uint32_t LOOP_INTERVAL_MS = 10;  // 100Hz loop principal
+
+// Latido al relé de seguridad PNOZ s4 (mod watchdog)
+PnozHeartbeat pnozHeartbeat(PNOZ_PULSE_PERIOD_MS);
 
 // Watchdog
 void watchdogSetup() {
@@ -109,6 +114,12 @@ void setup() {
     digitalWrite(PIN_RELE_BOMBA2, RELAY_INACTIVE_LEVEL);
     digitalWrite(PIN_RELE_BOMBA3, RELAY_INACTIVE_LEVEL);
 
+    // Latido PNOZ s4 en LOW antes de nada: "sin pulso" -> el relé de
+    // seguridad mantiene los relés de bomba abiertos hasta que el firmware
+    // demuestre estar vivo.
+    pinMode(PIN_PNOZ_HEARTBEAT, OUTPUT);
+    digitalWrite(PIN_PNOZ_HEARTBEAT, LOW);
+
     // LEDs
     pinMode(PIN_LED_OK, OUTPUT);
     pinMode(PIN_LED_GEN, OUTPUT);
@@ -151,17 +162,31 @@ void setup() {
 
     Serial.println("[MAIN] Inicialización completa. Entrando en loop principal.");
     last_loop_time = millis();
+    last_block_time = millis();
 }
 
 void loop() {
     uint32_t now = millis();
     
     // Loop a intervalo fijo (100Hz)
+    // Si el bloque de 100Hz se retrasa (bloqueo del loop), el pin de latido
+    // puede quedarse en HIGH colgado. Forzarlo a LOW hace que el PNOZ
+    // detecte ausencia de pulso y abra los relés - que es el lado seguro.
+    if (now - last_block_time >= PNOZ_STALE_MS) {
+        digitalWrite(PIN_PNOZ_HEARTBEAT, LOW);
+    }
+
     if (now - last_loop_time >= LOOP_INTERVAL_MS) {
         last_loop_time = now;
+        last_block_time = now;
 
         // Recargar watchdog
         watchdogReload();
+
+        // Latido al PNOZ s4 (debe ser lo primero: es la barrier que
+        // depende de que el firmware siga vivo)
+        digitalWrite(PIN_PNOZ_HEARTBEAT,
+                     pnozHeartbeat.update(now) ? HIGH : LOW);
 
         // Leer entradas
         modeDetect.update();

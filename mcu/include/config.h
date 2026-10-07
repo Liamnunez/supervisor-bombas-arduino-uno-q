@@ -44,6 +44,14 @@
 #define PIN_LED_GEN         PB14  // Amarillo - Modo Generador
 #define PIN_LED_FAULT       PB15  // Rojo - Fallo
 
+// Latido al relé de seguridad Pilz PNOZ s4 (entradas P1/P2).
+// Modo watchdog: si el pulso se interrumpe, el PNOZ abre 13-14 y 23-24
+// -> los relés de bomba quedan sin alimentación -> 0 bombas. Así el E-Stop
+// y el fallo del MCU no dependen del firmware.
+// ⚠️ Verificar que PB3 esté expuesto en el conector del UNO Q antes de
+//    cablear; alternativas libres a confirmar: PB12, PC4.
+#define PIN_PNOZ_HEARTBEAT  PB3   // Salida digital - Latido PNOZ s4 (reposo LOW)
+
 // --- Parámetros Eléctricos ---
 #define RELAY_ACTIVE_LEVEL  HIGH  // Relés: HIGH = cerrado (paso señal)
 #define RELAY_INACTIVE_LEVEL LOW  // Relés: LOW = abierto (bloqueo)
@@ -54,6 +62,14 @@
 #define FEEDBACK_TIMEOUT_MS 2000  // Timeout espera retorno aux tras orden
 #define HEARTBEAT_MS        1000  // Latido MCU -> Linux
 #define WATCHDOG_TIMEOUT_MS 5000  // Watchdog interno
+
+// Latido PNOZ s4: periodo entre pulsos. El pulso dura 1 ciclo del loop
+// de 100 Hz (10 ms). Ajustar al manual del PNOZ s4 y verificar en banco.
+#define PNOZ_PULSE_PERIOD_MS 100
+// Si el bloque de 100Hz se retrasa más que esto (bloqueo del loop), se
+// fuerza el pin a LOW para que el PNOZ detecte ausencia de pulso en vez de
+// ver un HIGH colgado.
+#define PNOZ_STALE_MS        50
 
 // Nivel de agua (ADC 12-bit: 0-4095)
 // Sensor 4-20mA con resistor 120ohm -> 0.48V-2.4V -> ADC ~780-3900

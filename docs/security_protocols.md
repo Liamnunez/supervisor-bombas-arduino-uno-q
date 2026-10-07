@@ -30,7 +30,11 @@
 | **SIF-03** | Contactor soldado | PLC=OFF, FB=ON > 2s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-04** | Sobrecorriente gen | I > 42A > 3s | EMERGENCIA global | SIL 1 | Semestral |
 | **SIF-05** | Nivel sensor fail | ADC < 3.5mA o > 21mA | Alerta + safe state | SIL 1 | Anual |
+| **SIF-06** | Watchdog de latido HW | Pulso PB3→PNOZ P1 se interrumpe | PNOZ abre 13-14 y 23-24 | SIL 1 | Trimestral |
 
+> **SIF-06** es la única SIF cuya detección no depende del firmware: la
+> ejecuta el PNOZ s4 en modo watchdog. Un firmware colgado deja de emitir
+> el pulso y la cadena de relés se abre sin participación del software.
 > **Nota:** SIL 1 target para pilotaje. Revisar a SIL 2 tras análisis de riesgo
 > (HAZOP).
 
@@ -53,6 +57,7 @@
 │ CAPA 2: Firmware MCU (SIS)                                  │
 │  - Loop 100Hz / Watchdog 5s (IWDG)                          │
 │  - SIF-01 a SIF-05 implementadas                            │
+│  - Latido PB3→PNOZ emitido cada 100ms (SIF-06)               │
 │  - Anti-cruzamiento 100ms / Debounce 50ms                   │
 ├─────────────────────────────────────────────────────────────┤
 │ CAPA 1: Hardware (Inherente)                                │
@@ -60,9 +65,15 @@
 │  - Pull-up PC0 (modo) / Pull-down PC1-3 (feedback)          │
 │  - Relé de seguridad (Pilz PNOZ) entre MCU y contactor **   │
 │  - E-stop hardwired (botón físico, cableado directo) **     │
+│  - Watchdog de latido MCU→PNOZ (PB3 → P1) **               │
 └─────────────────────────────────────────────────────────────┘
 ** = Requerido para producción (no en piloto)
 ```
+
+> **SIF-06 (watchdog de latido) cierra el bucle de independencia:** con el
+> PNOZ en modo watchdog, ninguna condición de fallo necesita que el
+> firmware "se dé cuenta" para que las bombas paren. Sin él, el PNOZ solo
+> protege el E-Stop y todo lo demás depende del software.
 
 ---
 
@@ -113,6 +124,7 @@
 | **PT-06** E-stop físico | Semestral | Presionar botón | Todos relés abiertos < 50ms | Operador |
 | **PT-07** Watchdog | Anual | Inyectar loop infinito | Reset IWDG < 5s | Ingeniero |
 | **PT-08** Comunicación | Mensual | Desconectar UART | Alerta Linux > 10s | Operador |
+| **PT-09** Watchdog PNOZ | Trimestral | Cortar 24V y luego solo el cable P1 | Relés abiertos por PNOZ | Ingeniero |
 
 > **Registro:** Cada test genera acta firmada (PDF) archivada 5 años.
 

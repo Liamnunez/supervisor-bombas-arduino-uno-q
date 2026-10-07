@@ -12,10 +12,10 @@
 
 | # | Cant | Descripción | Especificación | Proveedor sugerido |
 | --- | --- | --- | --- | --- |
-| 1 | 1 | Arduino UNO Q (STM32U585AI) | 160 MHz, 2 MB Flash, 786 KB RAM | Arduino / DigiKey |
+| 1 | 1 | Arduino UNO Q (STM32U585AI) | 160 MHz, 2 MB Flash, 786 KB RAM. Salida PB3 → PNOZ | Arduino / DigiKey |
 | 2 | 3 | Relé intermedio | 24 VDC bobina, 10 A / 250 VAC, 1NO+1NC | Finder 40.52 / Omron G2R |
 | 3 | 3 | Contactor de potencia | 24 VDC bobina 80 mA, 3P 18.5 A AC-3 | Schneider LC1D18 / Siemens 3RT2018 |
-| 4 | 1 | **Relé de seguridad** | Pilz PNOZ s4, 24 VDC, 2 salidas seguridad, monitored E-Stop | Pilz PNOZ s4 |
+| 4 | 1 | **Relé de seguridad** | Pilz PNOZ s4, 24 VDC, 2 salidas, E-Stop + watchdog (P1/P2) | Pilz PNOZ s4 |
 | 5 | 1 | **E-Stop físico** | Botón hongo EN 418, 2 NC + 1 NO, con llave | Siemens 3SB3 / EAO |
 | 6 | 1 | Sensor de nivel | 4-20 mA, 2 hilos, IP68, rango según tanque | Vega / Endress+Hauser |
 | 7 | 1 | Resistencia shunt | 120 Ω, 1 %, 0.5 W (0.25 W mín. disipación real) | Vishay / Yageo |
@@ -132,6 +132,10 @@
         │             │                               │
         │  Y1-Y2  ◀──┴── Reset (botón o puente)      │
         │                                             │
+        │  P1     ◀─── Latido del firmware (PB3)     │
+        │             │   modo watchdog - 10ms/100ms  │
+        │  P2     ──── +24 VDC (referencia de pulso) │
+        │                                             │
         │  13-14  ──▶ salida seguridad 1 (S1)         │
         │  23-24  ──▶ salida seguridad 2 (S2)         │
         │                                             │
@@ -156,9 +160,38 @@ El PNOZ s4 **abre S1 y S2 simultáneamente** si:
 - E-Stop se presiona (ambos canales abiertos)
 - PNOZ detecta corto entre canales
 - Fallo interno de diagnóstico
+- El **latido del firmware se interrumpe** (modo watchdog, P1/P2)
 
-Esto es **independiente del firmware**: aunque el MCU falle o se cuelgue, el
-E-Stop físico abre la cadena.
+Esto es **independiente del firmware**: aunque el MCU se cuelgue, el
+E-Stop físico y el watchdog de latido abren la cadena sin que ningún código
+tenga que participar.
+
+### 4.1 Modo watchdog (latido del firmware)
+
+Sin esta función el PNOZ solo protege contra el E-Stop. Con ella, un
+firmware colgado también abre los relés.
+
+| Parámetro | Valor | Nota |
+| --- | --- | --- |
+| Pin de salida | PB3 (`PIN_PNOZ_HEARTBEAT`) | Reposo LOW |
+| Periodo del pulso | 100 ms (`PNOZ_PULSE_PERIOD_MS`) | Configurable |
+| Ancho del pulso | 10 ms | 1 ciclo del loop de 100 Hz |
+| Referencia | +24 VDC en P2 | Referencia del pulso |
+| Reposo seguro | LOW (sin pulso) | MCU colgado antes del 1.º pulso → abre |
+
+> ⚠️ **El ancho y periodo del pulso deben ajustarse al manual del PNOZ s4 y
+> verificarse en banco.** El modo watchdog se activa por configuración
+> interna del módulo (no por cableado), y el rango de pulsos aceptable
+> depende de la configuración elegida. No cablear ni dar por servicio el
+> sistema sin esa verificación — ver PT-09.
+> ⚠️ **Verificar que PB3 esté expuesto en el conector del UNO Q** antes de
+> cablear. Alternativas libres: PB12, PC4. Si el pin elegido no está
+> expuesto, cambiar `PIN_PNOZ_HEARTBEAT` en `mcu/include/config.h`.
+> **Límite conocido del método:** si el firmware se cuelga *durante* el
+> pulso, el pin queda en HIGH y el PNOZ ve un pulso largo, no ausencia de
+> pulso. Por eso el firmware fuerza el pin a LOW si el bloque de 100 Hz se
+> retrasa más de `PNOZ_STALE_MS` (50 ms). Un cuelgue dentro de ese bloque no
+> puede detectarse por software — solo el timeout del PNOZ lo cubre.
 
 ---
 
@@ -218,7 +251,7 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ---
 
-## 8. Proof Tests (PT-01 a PT-08) — Procedimientos
+## 8. Proof Tests (PT-01 a PT-09) — Procedimientos
 
 > Requisitos de `docs/security_protocols.md` §5. Ejecutar con personal
 > cualificado. Registrar resultado firmado y archivado 5 años.
@@ -334,6 +367,30 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ---
 
+### PT-09 — Watchdog de latido PNOZ s4 (trimestral)
+
+> ⚠️ **Este es el PT más importante de los nueve.** Si el PNOZ no está
+> realmente en modo watchdog, toda la barrera de seguridad del proyecto se
+> apoya únicamente en el firmware — que es exactamente lo que el diseño
+> pretende evitar. Los pasos 5 y 6 son los que lo demuestran.
+
+| Paso | Acción | Criterio de aceptación |
+| --- | --- | --- |
+| 1 | Verificar el pin de latido con osciloscopio | Pulso 10 ms / periodo 100 ms |
+| 2 | Cortar alimentación 24 V del MCU | Relés abiertos por watchdog <500 ms |
+| 3 | Restaurar 24 V | MCU arranca y rearma el PNOZ solo |
+| 4 | Desconectar **solo** el cable P1-PB3 | Relés abiertos aunque el MCU esté vivo |
+| 5 | Cortar el cable con el pin en reposo LOW | PNOZ detecta ausencia de pulso |
+| 6 | Cortar el cable con el pin en HIGH (durante pulso) | PNOZ detecta pulso colgado |
+| 7 | Cortocircuitar P1 a +24 V | PNOZ abre (pulso fijo = sin latido) |
+| 8 | Reconectar y verificar | Rearme manual, no automático |
+
+**Firma:** _________________ Fecha: _________
+
+**Resultado paso 6:** __________ (si falla, documentar como riesgo abierto)
+
+---
+
 ## 9. Checklist de Puesta en Marcha
 
 ### Pre-commissioning
@@ -355,7 +412,10 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ### Commissioning funcional
 
-- [ ] PT-01 a PT-08 ejecutados y firmados
+- [ ] PT-01 a PT-09 ejecutados y firmados
+- [ ] PNOZ s4 confirmado en **modo watchdog** (no solo E-Stop)
+- [ ] Ancho/periodo de pulso ajustados al manual del PNOZ s4
+- [ ] PB3 (o pin sustituto) confirmado expuesto en el conector
 - [ ] Calibración de CT de corriente (pinza real)
 - [ ] Calibración sensor de nivel (4 mA / 20 mA)
 - [ ] Verificar alertas Telegram llegan al chat correcto

@@ -92,6 +92,10 @@ tests-native:
 		tests/native/test_current_protector.cpp mcu/src/current_protector.cpp \
 		-o tests/native/build/test_current_protector
 	./tests/native/build/test_current_protector
+	g++ -std=c++17 -Wall -Wextra -I mcu/include \
+		tests/native/test_pnoz_heartbeat.cpp mcu/src/pnoz_heartbeat.cpp \
+		-o tests/native/build/test_pnoz_heartbeat
+	./tests/native/build/test_pnoz_heartbeat
 
 tests-coverage:
 	@echo "[TESTS] Con cobertura..."
