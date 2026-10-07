@@ -71,6 +71,17 @@
 // ver un HIGH colgado.
 #define PNOZ_STALE_MS        50
 
+// --- Actualización de firmware (OTA firmado, Fase 4) ---
+// Ver docs/ota_procedure.md. Estado real: la lógica de verificación de
+// imagen y los slots A/B con rollback están implementados y testeados
+// nativamente (tests/native/test_fw_image.cpp, test_boot_slot.cpp), pero
+// NO hay backend criptográfico Ed25519 ni particiones A/B en flash. Mientras
+// eso no exista, fwVerifyImage() rechaza TODA imagen: fail-closed.
+#define FW_OTA_ENABLED         false    // no montar el flujo OTA sin bootloader
+#define OTA_CONFIRM_TIMEOUT_MS 60000    // 60 s para auto-testear y confirmar
+#define OTA_SLOT_MAX_BYTES     524288   // 512 KB/slot - AJUSTAR al mapa real
+#define FW_CURRENT_VERSION     1        // versión del firmware en ejecución
+
 // Nivel de agua (ADC 12-bit: 0-4095)
 // Sensor 4-20mA con resistor 120ohm -> 0.48V-2.4V -> ADC ~780-3900
 #define NIVEL_ADC_MIN       800   // ~4mA (0% / vacío)

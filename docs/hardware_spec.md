@@ -251,7 +251,7 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ---
 
-## 8. Proof Tests (PT-01 a PT-09) — Procedimientos
+## 8. Proof Tests (PT-01 a PT-15) — Procedimientos
 
 > Requisitos de `docs/security_protocols.md` §5. Ejecutar con personal
 > cualificado. Registrar resultado firmado y archivado 5 años.
@@ -391,6 +391,28 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ---
 
+### PT-10 a PT-15 — Actualización de firmware (OTA firmado)
+
+> Requieren bootloader A/B instalado. **No ejecutables hasta que exista.**
+> Detalle del procedimiento en `docs/ota_procedure.md`.
+
+| # | Prueba | Método | Criterio | Frecuencia |
+| --- | --- | --- | --- | --- |
+| **PT-10** | Firma corrupta | Alterar 1 byte de la firma | Rechazada; slot activo intacto | Trimestral |
+| **PT-11** | Hash inconsistente | Recalcular CRC32 pero no SHA-256 | Rechazada en el hash | Trimestral |
+| **PT-12** | Downgrade | Imagen con versión anterior | Rechazada (anti-rollback) | Trimestral |
+| **PT-13** | Auto-test que falla | Firmware con umbral a 0 | Rollback automático | Semestral |
+| **PT-14** | Corte durante transferencia | Cortar 24 V a mitad de descarga | Slot destino no corrupto; slot activo OK | Semestral |
+| **PT-15** | Corte durante activación | Cortar 24 V al arrancar en TRIAL | Arranca en el slot confirmado | Semestral |
+
+> **PT-14 y PT-15 son las críticas.** Un corte de luz a media escritura es
+> el escenario real, no el teórico. Si el bootloader no sobrevive a eso, no
+> hay A/B que valga y hay que volver al paso 1 (firma en CI + flasheo físico).
+
+**Firma:** _________________ Fecha: _________
+
+---
+
 ## 9. Checklist de Puesta en Marcha
 
 ### Pre-commissioning
@@ -412,7 +434,7 @@ solo los 2 NC. Debe probarse el corte de telemetría sin afectar la parada.
 
 ### Commissioning funcional
 
-- [ ] PT-01 a PT-09 ejecutados y firmados
+- [ ] PT-01 a PT-09 ejecutados y firmados (PT-10..PT-15 solo con A/B)
 - [ ] PNOZ s4 confirmado en **modo watchdog** (no solo E-Stop)
 - [ ] Ancho/periodo de pulso ajustados al manual del PNOZ s4
 - [ ] PB3 (o pin sustituto) confirmado expuesto en el conector

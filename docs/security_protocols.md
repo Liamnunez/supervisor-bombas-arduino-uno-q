@@ -125,6 +125,23 @@
 | **PT-07** Watchdog | Anual | Inyectar loop infinito | Reset IWDG < 5s | Ingeniero |
 | **PT-08** Comunicación | Mensual | Desconectar UART | Alerta Linux > 10s | Operador |
 | **PT-09** Watchdog PNOZ | Trimestral | Cortar 24V y luego solo el cable P1 | Relés abiertos por PNOZ | Ingeniero |
+| **PT-10** Firma corrupta | Trimestral | Alterar 1 byte de la firma | Imagen rechazada | Ingeniero |
+| **PT-11** Hash inconsistente | Trimestral | Recalcular CRC32 sin SHA-256 | Rechazada en el hash | Ingeniero |
+| **PT-12** Downgrade | Trimestral | Imagen con versión anterior | Rechazada (anti-rollback) | Ingeniero |
+| **PT-13** Auto-test fallido | Semestral | Firmware con umbral a 0 | Rollback automático | Ingeniero |
+| **PT-14** Corte en transferencia | Semestral | Cortar 24V a mitad de descarga | Slot activo intacto | Ingeniero |
+| **PT-15** Corte en activación | Semestral | Cortar 24V arrancando en TRIAL | Arranca en el slot confirmado | Ingeniero |
+
+> **PT-10..PT-15 requieren bootloader A/B instalado.** Ver
+> `docs/ota_procedure.md` §10 para el estado real de la implementación.
+
+### Cambio de firmware y proof tests
+
+**Cualquier** cambio de firmware invalida PT-01..PT-09 hasta que se
+re-ejecuten. Un binario nuevo en un slot confirmado sin re-ejecutarlos deja
+la planta sin evidencia de que la función de seguridad sigue siendo la
+misma. La firma demuestra que el binario es auténtico, no que esté
+probado.
 
 > **Registro:** Cada test genera acta firmada (PDF) archivada 5 años.
 

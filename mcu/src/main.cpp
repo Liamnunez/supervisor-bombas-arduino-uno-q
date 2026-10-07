@@ -7,6 +7,7 @@
  */
 
 #include <Arduino.h>
+#include <stddef.h>
 #include "config.h"
 #include "state_machine.h"
 #include "relay_control.h"
@@ -18,6 +19,8 @@
 #include "current_protector.h"
 #include "pnoz_heartbeat.h"
 #include "trip_policy.h"
+#include "boot_slot.h"
+#include "self_test.h"
 
 // Instancias globales
 StateMachine stateMachine;
@@ -66,6 +69,18 @@ static TripPolicy makeTripPolicy() {
     return TripPolicy(cfg);
 }
 TripPolicy tripPolicy = makeTripPolicy();
+
+// --- Auto-test de arranque y slots A/B (Fase 4) ---
+// Solo activo con FW_OTA_ENABLED. Ver docs/ota_procedure.md.
+static BootSlotManager makeBootSlots() {
+    BootSlotConfig cfg;
+    cfg.confirm_timeout_ms = OTA_CONFIRM_TIMEOUT_MS;
+    return BootSlotManager(cfg);
+}
+BootSlotManager bootSlots = makeBootSlots();
+SelfTest selfTest;
+bool selfTestConfirmed = false;
+uint32_t boot_time_ms = 0;
 
 // Watchdog
 void watchdogSetup() {
@@ -117,6 +132,81 @@ void readPlcOrders() {
             cnt[i] = 0;
         }
     }
+}
+
+/**
+ * Auto-test de arranque. Ver docs/ota_procedure.md §5.
+ *
+ * Prueba lo mínimo que hace útil el firmware: que los relés nacen
+ * abiertos, que el latido del PNOZ fluye, que la máquina de estados
+ * responde y que los umbrales de protección son coherentes.
+ *
+ * NO prueba el relé de seguridad: eso es hardware. Si el firmware no
+ * emite el latido, el PNOZ abre las bombas, que es el resultado correcto.
+ */
+void runSelfTest() {
+    // 0: los relés nacen abiertos. setup() los puso en RELAY_INACTIVE_LEVEL
+    // antes de que corriera nada; si un pin quedara en HIGH el arranque
+    // habría arrancado en una bomba que no fue pedida.
+    bool relays_ok = (digitalRead(PIN_RELE_BOMBA1) == RELAY_INACTIVE_LEVEL) &&
+                     (digitalRead(PIN_RELE_BOMBA2) == RELAY_INACTIVE_LEVEL) &&
+                     (digitalRead(PIN_RELE_BOMBA3) == RELAY_INACTIVE_LEVEL);
+    selfTest.setResult(0, relays_ok ? Check::PASS : Check::FAIL);
+
+    // 1: el latido se emití3 tras un ciclo completo del loop. Se comprueba
+    // en el bloque de 100 Hz, no aquí: aquí aún no ha corrido aún.
+    // 2: la máquina de estados respondió al begin()
+    selfTest.setResult(2, stateMachine.getState() == SystemState::NORMAL ||
+                           stateMachine.getState() == SystemState::GENERADOR
+                               ? Check::PASS : Check::FAIL);
+
+    // 3: los umbrales de protección tienen que ser coherentes. Un umbral a
+    // cero desactiva la protección sin que nada falle visiblemente.
+    selfTest.setResult(3, SelfTest::protectionSane(
+                               CORRIENTE_AVISO_A, CORRIENTE_TRIP_A,
+                               CORRIENTE_RESET_A, GEN_CAPACIDAD_A)
+                               ? Check::PASS : Check::FAIL);
+
+    // 4: CRC del protocolo. Si el cálculo de crc8 está roto, la
+    // comunicación con Linux falla en silencio y nadie se entera.
+    McuMessage probe = {};
+    probe.payload = 0x1234;
+    probe.timestamp = 0xDEADBEEF;
+    const size_t cuerpo = offsetof(McuMessage, crc8);
+    uint8_t c1 = crc8((const uint8_t*)&probe, cuerpo);
+    uint8_t c2 = crc8((const uint8_t*)&probe, cuerpo);
+    // Un byte modificado tiene que cambiar el CRC: si no, el CRC es
+    // constante y no detecta nada.
+    probe.payload = 0x1235;
+    uint8_t c3 = crc8((const uint8_t*)&probe, cuerpo);
+    selfTest.setResult(4, (c1 == c2 && c1 != c3 && crc8(nullptr, 0) == 0)
+                           ? Check::PASS : Check::FAIL);
+
+    SelfTestReport r = selfTest.report();
+    Serial.print("[SELFTEST] ");
+    Serial.print(r.passed);
+    Serial.print("/");
+    Serial.print(r.passed + r.skipped);
+    Serial.print(" ok, ");
+    Serial.print(r.failed);
+    Serial.println(" fallos");
+    if (r.anyFailed()) {
+        Serial.print("[SELFTEST] Fallo en: ");
+        Serial.println(SelfTest::name(r.firstFailedIndex()));
+    }
+
+#if FW_OTA_ENABLED
+    if (bootSlots.trialInProgress()) {
+        if (r.allOk()) {
+            bootSlots.confirmTrial();
+            Serial.println("[SELFTEST] Slot confirmado");
+        } else {
+            bootSlots.reportTrialFailure();
+            Serial.println("[SELFTEST] Auto-test fallo: rollback");
+        }
+    }
+#endif
+    selfTestConfirmed = r.allOk();
 }
 
 void setup() {
@@ -173,6 +263,13 @@ void setup() {
     for (uint8_t i = 0; i < NUM_BOMBAS; i++) {
         stateMachine.onFeedback(i, feedback.getFeedback(i));
     }
+
+    // --- Auto-test de arranque (Fase 4) ---
+    // Un firmware en TRIAL no se da por bueno hasta que esto pasa. Es lo
+    // que la firma NO puede comprobar: una imagen auténtica puede tener
+    // un fallo que solo aparece al arrancar.
+    boot_time_ms = millis();
+    runSelfTest();
 
     Serial.println("[MAIN] Inicialización completa. Entrando en loop principal.");
     last_loop_time = millis();

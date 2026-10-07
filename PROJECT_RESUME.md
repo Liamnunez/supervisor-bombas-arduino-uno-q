@@ -50,20 +50,23 @@
 - `docs/playbooks.md` - **Fase 5**: 7 escenarios paso a paso (PB-01..PB-07)
 - `docs/incident_response.md` - **Fase 5**: declarar, contener, investigar, recuperar, revisar
 - `docs/drills.md` - **Fase 5**: 5 simulacros + plantilla de acta
+- `docs/ota_procedure.md` - **Fase 4**: OTA firmado, 3 pasos de riesgo, formato, PT-10..PT-15
 
 ### 🧪 Tests
 - **43 pytest** (state machine, relay logic, auth, alerts store, models)
 - **21 native C++** (current_protector: inrush ride-through, trip once, re-arm, welded, CT fault, millis wrap)
 - **23 native C++** (pnoz_heartbeat: fail-safe idle, pulse width, cadencia, reset, millis wrap, corte de latido)
 - **173 native C++** (trip_policy: ciclo de 3 intentos, edge vs estado, ventana de 15 min, cooldown, operatorReset, overflow guard)
+- **83 native C++** (fw_image: bounds, anti-rollback, CRC/SHA-256, shortcuts, fail-closed sin backend)
+- **112 native C++** (boot_slot + self_test: A/B, rollback, activación local, auto-test)
 - **50 pytest** (incluye test_error_codes.py: semántica 0x6020/0x6021)
-- **Todos pasan**: 267/267 ✅
+- **Todos pasan**: 441/441 ✅
 
 ### 🐳 Docker & CI
 - `docker-compose.yml` (prod) + `docker-compose.dev.yml` (dev con live reload)
 - `linux/Dockerfile` multi-stage (builder → runtime, non-root)
 - GitHub Actions CI: test, lint (pylint/cppcheck/markdownlint), firmware-syntax, build-docs
-- Tests locales: `make tests` → 267/267 ✅
+- Tests locales: `make tests` → 441/441 ✅
 
 ---
 
@@ -130,11 +133,12 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 |-----------|-------|----------|------------|
 | **1** | **Fase 4**: Firmware OTA seguro (Ed25519, rollback A/B) | 2-3h | - |
 | **2** | **Fase 6**: Formación operadores / competencias | 1h | - |
-| **3** | Completar placeholders de `escalation_matrix.md` con personal real | 1h | Datos de planta |
-| **4** | Confirmar PNOZ s4 en **modo watchdog** en banco (PT-09) | - | Hardware |
-| **5** | Verificar PB3 expuesto en el conector UNO Q | 15 min | Hardware |
-| **6** | Levantar historial de corriente real para validar umbrales 40/42/45 A | - | CT instalado |
-| **7** | Docker test en hardware real (QRB2210) | 1h | Hardware |
+| **4** | Completar placeholders de `escalation_matrix.md` con personal real | 1h | Datos de planta |
+| **5** | Confirmar PNOZ s4 en **modo watchdog** en banco (PT-09) | - | Hardware |
+| **6** | Verificar PB3 expuesto en el conector UNO Q | 15 min | Hardware |
+| **7** | Mapa de flash real para particiones A/B (2 MB, dual-bank) | - | Hardware |
+| **8** | Levantar historial de corriente real para validar umbrales 40/42/45 A | - | CT instalado |
+| **9** | Docker test en hardware real (QRB2210) | 1h | Hardware |
 
 ## ✅ Fases Completadas
 
@@ -143,7 +147,9 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 | 1 | `docs/security_protocols.md` | `ecc4c5a` |
 | 2 | `docs/hazop_lopa.md` | `1d282b3` |
 | 3 | `docs/hardware_spec.md` | `e4a6e1a` |
-| 5 | 5 docs + heartbeat PNOZ (SIF-06) | pendiente |
+| 5 | 5 docs + heartbeat PNOZ (SIF-06) | `7642f3a` |
+| - | Politica de trip auto-recuperacion x3/15min | `19efa47` |
+| 4 | `fw_image` + `boot_slot` + `self_test` + `ota_procedure.md` | pendiente |
 
 ---
 
@@ -162,6 +168,11 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 | **Carga del generador** | 1 bomba (~30 A) de capacidad | Verificar cargas auxiliares en sitio |
 | **Pozo en overflow** | Proteger generador: 1 bomba antes que 0 | Revisar con operador |
 
+> ⚠️ **OTA no activable todavía.** `fwVerifyImage()` rechaza TODA
+> imagen porque no hay backend Ed25519 (`FW_OTA_ENABLED false`). Es
+> fail-closed a propósito. Ver `docs/ota_procedure.md` §10 para el
+> inventario de lo que falta.
+
 > ✅ **Política de trip implementada.** `mcu/src/trip_policy.cpp` + test
 > nativo propio (173 checks). `StateMachine::autoRecoverTrip()` sale de la
 > emergencia de sobrecarga **sin** limpiar los faults de feedback de las
@@ -174,7 +185,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 | Job | Último Estado | Commit |
 |-----|---------------|--------|
-| **test** | ✅ Local 267/267 | pendiente push |
+| **test** | ✅ Local 441/441 | pendiente push |
 | **lint** | ✅ docs nuevos markdownlint-clean | pendiente push |
 | **firmware-syntax** | ✅ verificado con stub CI | pendiente push |
 | **build-docs** | ✅ | pendiente push |
@@ -187,7 +198,7 @@ Frame: `0xAA | type | bomba_id | u32 ts | u16 payload | crc8 | 0x55`
 
 ```bash
 # Tests
-make tests              # 267 tests (50 pytest + 217 native C++)
+make tests              # 441 tests (50 pytest + 391 native C++)
 make tests-py           # Solo pytest
 make tests-native       # Solo native C++
 
@@ -208,8 +219,9 @@ cd linux && python -m app.main          # FastAPI :8080
 
 ## 📝 Próxima Acción Inmediata
 
-1. **Push de Fase 5** y verificar CI green.
-2. **Fase 4**: firmware OTA firmado (Ed25519) con rollback A/B.
+1. **Push de Fase 4** y verificar CI green.
+2. **Fase 4 paso 1**: firma en CI + flasheo físico. Captura casi toda la
+   seguridad sin tocar el bootloader. Ver `docs/ota_procedure.md` §3.
 3. **Con hardware**: confirmar PNOZ s4 en modo watchdog (PT-09) y
    verificar que PB3 está expuesto en el UNO Q.
 4. **Validar en banco**: los umbrales 40/42/45 A y el enfriamiento de 60 s
